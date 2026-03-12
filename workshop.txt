@@ -1,0 +1,76 @@
+[h1]TooltipLib — Shared Tooltip Framework[/h1]
+
+A lightweight framework that lets multiple mods add content to tooltips without conflicts. No more broken tooltips when two mods hook the same function.
+
+[h2]For Players[/h2]
+
+You don't need to configure anything. Install TooltipLib, install mods that use it, and their tooltip content appears automatically — aligned, organized, and conflict-free.
+
+[list]
+[*] [b]Mod Options[/b]: Toggle individual providers on/off in Options > Mods > TooltipLib (requires Umbrella / PZAPI.ModOptions)
+[*] [b]Detail Key[/b]: Hold Left Shift while hovering to see extra tooltip info from mods that support it. Rebindable in Mod Options.
+[*] [b]Compatible with other tooltip mods[/b]: TooltipLib detects when another mod modifies the same tooltip hooks and automatically falls back to a deferred rendering mode. Your mods keep working together.
+[/list]
+
+[h2]Supported Surfaces[/h2]
+
+Mods can add content to all six tooltip types in Build 42:
+
+[list]
+[*] Inventory item tooltips
+[*] Crafting slot item tooltips
+[*] World object tooltips (generators, rain collectors, farm plants)
+[*] Skill progress bar tooltips
+[*] Vehicle part tooltips (mechanics overlay)
+[*] Crafting recipe tooltips
+[/list]
+
+[h2]Compatibility[/h2]
+
+[list]
+[*] Works alongside [b]Inventory Tetris[/b], [b]Equipment UI[/b], and other inventory UI mods — they change the inventory layout, not the tooltip rendering
+[*] Works alongside mods that append to tooltips (e.g., BurdSurvivalJournals, DAMN Library) — standard hook chaining
+[*] Graceful fallback when another tooltip framework (e.g., StarlitLibrary) modifies the same hooks — provider content still renders
+[*] Multiple mods can bundle TooltipLib — the newest version always wins via version guard
+[/list]
+
+[h2]For Mod Developers[/h2]
+
+One registration call. No hooking, no conflict management, no drawing code.
+
+[code]
+require "TooltipLib/Core"
+
+TooltipLib.registerProvider({
+    id          = "MyMod_WeaponStats",
+    target      = "item",
+    enabled     = TooltipLib.Filters.weapon,
+    cacheable   = true,
+    description = "Weapon damage stats",
+    callback    = function(ctx)
+        ctx:addKeyValue("Damage:", "+15%", nil, TooltipLib.Colors.GREEN)
+    end,
+})
+[/code]
+
+[b]What you get for free:[/b]
+[list]
+[*] Column alignment across all providers (labels, values, progress bars)
+[*] Error isolation — one broken provider can't crash another
+[*] Circuit breaker — auto-disables providers after 10 consecutive errors
+[*] Two-level caching with configurable invalidation
+[*] Auto-separators between providers
+[*] Height cap with overflow indicator
+[*] Player-facing enable/disable toggles in Mod Options
+[*] Unified API across all six surfaces
+[/list]
+
+Full developer guide: https://github.com/DarkSauceTooltips/TooltipLib/blob/main/docs/GUIDE.md
+
+[h2]Multiplayer[/h2]
+
+Purely client-side. No server code, no network traffic. Safe to add or remove mid-session.
+
+[h2]Requirements[/h2]
+
+Project Zomboid Build 42.13.1+

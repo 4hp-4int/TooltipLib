@@ -1,0 +1,165 @@
+[h1]TooltipLib[/h1]
+[i]A Shared Tooltip Framework for Mod Authors[/i]
+[hr][/hr]
+
+[h2]The Problem[/h2]
+
+Right now, [b]8+ mods[/b] on the Workshop independently hook [code]ISToolTipInv.render[/code] to add content to item tooltips. Authentic Z. StarlitLibrary. Show Weapon Stats Plus. ArmorMakesSense. BurdSurvivalJournals. And more.
+
+Every one of them does the same thing: save the original render function, replace it with their own, and pray that their hook runs before or after the next mod's hook. Load two of these together and it's a coin flip on whose tooltip content actually shows up.
+
+[b]This is a solved problem.[/b] TooltipLib solves it.
+
+[hr][/hr]
+
+[h2]What It Does[/h2]
+
+TooltipLib provides a single, shared tooltip pipeline. Instead of fighting over who hooks [code]ISToolTipInv.render[/code], mods register as [b]providers[/b] and add their content through a managed API.
+
+[list]
+[*] [b]One hook, many providers.[/b] TooltipLib owns the hook. Mods just register callbacks.
+[*] [b]Guaranteed ordering.[/b] Providers run in priority order. Armor info before weapon info, always.
+[*] [b]Single layout.[/b] Vanilla stats, armor burden, weapon affixes — all rendered in one layout. Progress bars, labels, and values automatically align.
+[*] [b]Error isolation.[/b] One mod crashes? The rest still render. Framework catches and logs errors per-provider.
+[*] [b]Cleanup guarantee.[/b] If your preTooltip modified item state, cleanup runs even if everything else fails.
+[/list]
+
+[hr][/hr]
+
+[h2]For Players[/h2]
+
+[b]You don't need to do anything.[/b] If you're running mods that use TooltipLib, install this and they'll work together. No configuration, no load order fiddling.
+
+If a mod lists TooltipLib as a dependency, install it. That's it.
+
+[hr][/hr]
+
+[h2]For Mod Authors[/h2]
+
+[h3]The Pitch[/h3]
+
+You know that 80-line metatable dance you wrote? The one that saves [code]ISToolTipInv.render[/code], wraps [code]DoTooltip[/code], manages the layout lifecycle, does nested pcalls, computes tooltip width, and restores the metatable after render?
+
+Replace it with this:
+
+[code]
+TooltipLib.registerProvider({
+    id = "MyMod",
+    callback = function(ctx)
+        ctx:addHeader("My Mod")
+        ctx:addKeyValue("Stat:", "+10%", nil, TooltipLib.Colors.GREEN)
+        ctx:addProgress("XP:", 0.75)
+        ctx:addDivider()
+        ctx:addLabel("Some flavor text", TooltipLib.Colors.GRAY)
+    end,
+})
+[/code]
+
+That's it. No metatable juggling. No manual pcall nesting. No layout lifecycle management. No width calculation. No fighting other mods for the hook.
+
+[h3]What You Get[/h3]
+
+[list]
+[*] [b]Context-bound methods:[/b] [code]ctx:addLabel()[/code], [code]ctx:addKeyValue()[/code], [code]ctx:addProgress()[/code], [code]ctx:addHeader()[/code], [code]ctx:addDivider()[/code], [code]ctx:addSpacer()[/code], [code]ctx:addInteger()[/code]
+[*] [b]Texture support:[/b] [code]ctx:addTexture()[/code] and [code]ctx:addTextureRow()[/code] — draw item icons and images on tooltips without writing postRender code.
+[*] [b]Color palette:[/b] [code]TooltipLib.Colors.GREEN[/code], [code].RED[/code], [code].GOLD[/code], [code].PURPLE[/code], etc. Or pass your own [code]{r, g, b, a}[/code] tables.
+[*] [b]Priority constants:[/b] [code]TooltipLib.Priorities.FIRST[/code] through [code].LAST[/code]. Or omit priority entirely and let the framework auto-assign.
+[*] [b]5-phase lifecycle:[/b] [code]preTooltip[/code] (modify item state) -> [code]callback[/code] (add content) -> [code]textures[/code] (framework draws queued icons) -> [code]postRender[/code] (draw custom) -> [code]cleanup[/code] (restore state, guaranteed).
+[*] [b]Automatic caching:[/b] Set [code]cacheable = true[/code] and your callback records once, replays for free. [code]maxAge[/code] provides a safety net against stale data.
+[*] [b]Debug mode:[/b] [code]TooltipLib.debug = true[/code] — see cache hits/misses, provider timing, and texture processing in the console.
+[*] [b]Direct layout access:[/b] [code]ctx.layout[/code] is still there. Use the helpers or go raw — your call.
+[*] [b]Soft dependency:[/b] Check [code]if TooltipLib then[/code] and fall back to your own hook if it's not installed.
+[*] [b]EmmyLua annotations:[/b] Full type annotations for IDE autocomplete and type checking.
+[/list]
+
+[h3]Full Example (with all phases)[/h3]
+
+[code]
+TooltipLib.registerProvider({
+    id = "MyWeaponMod",
+    priority = TooltipLib.Priorities.DEFAULT,
+    cacheable = true,
+
+    enabled = function(item)
+        return instanceof(item, "HandWeapon")
+    end,
+
+    preTooltip = function(ctx)
+        -- Runs before vanilla tooltip. Modify item state here.
+        ctx._savedClip = ctx.item:getClipSize()
+        ctx.item:setClipSize(ctx._savedClip + 10)
+    end,
+
+    callback = function(ctx)
+        -- Add content to the shared layout.
+        ctx:addSpacer()
+        ctx:addLabel("Custom Damage: +15%", TooltipLib.Colors.GREEN)
+        ctx:addProgress("Mastery:", 0.75, nil, TooltipLib.Colors.GOLD)
+    end,
+
+    postRender = function(ctx)
+        -- Draw directly on tooltip surface after layout renders.
+        -- ctx.endY, ctx.width, ctx.padLeft available.
+    end,
+
+    cleanup = function(ctx)
+        -- Restore item state. ALWAYS runs, even on error.
+        ctx.item:setClipSize(ctx._savedClip)
+    end,
+})
+[/code]
+
+[hr][/hr]
+
+[h2]Compatibility[/h2]
+
+[b]Build 42.13.1+ required.[/b]
+
+[list]
+[*] Works with vanilla PZ
+[*] Works alongside mods that hook [code]ISToolTipInv.render[/code] directly — they just don't get conflict resolution
+[*] Works with StarlitLibrary 2.0+ (no reflection hook, vanilla path)
+[*] Works with any mod that calls [code]item:DoTooltip(tooltip)[/code] from Lua
+[*] Safe to add mid-save
+[/list]
+
+[h3]Mods Using TooltipLib[/h3]
+
+[list]
+[*] [b]VorpallySauced[/b] — Weapon progression tooltips (affixes, kill tracking, mastery)
+[/list]
+
+[h2]Multiplayer[/h2]
+
+[b]Fully MP compatible. Client-only. Zero server footprint.[/b]
+
+[list]
+[*] [b]No server install needed.[/b] TooltipLib runs entirely on the client. The server does not need it installed.
+[*] [b]No network traffic.[/b] Zero packets sent. The framework reads item state that's already synced by the game and renders locally.
+[*] [b]No persistent state.[/b] Nothing written to ModData, save files, or item state. Tooltips are ephemeral — rendered per-frame, discarded immediately.
+[*] [b]No idle cost.[/b] The hook only fires when the player is hovering an item tooltip. No background tick, no polling.
+[*] [b]Safe to add or remove mid-session.[/b] No migration needed. No state to clean up. Install it, uninstall it — nothing changes server-side.
+[/list]
+
+[hr][/hr]
+
+[h2]Source[/h2]
+
+Open source. Read it, fork it, tell me it's bad.
+
+[hr][/hr]
+
+[h2]Bug Reports[/h2]
+
+[code]
+TooltipLib Version:
+Game Version:
+Mode: [SP/MP/Server]
+What happened:
+Your mod (if applicable):
+Other tooltip mods installed:
+[/code]
+
+[hr][/hr]
+
+[i]Stop fighting over the hook. Register a provider.[/i]

@@ -1,0 +1,25 @@
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code (config from parent monorepo via junctions)
+.claude/
+CLAUDE.local.md
+
+# OS files
+Thumbs.db
+.DS_Store
+nul
+
+# Build artifacts
+*.zip
+mod-packages/
+
+# Logs
+*.log
+
+# LuaLS type stubs
+.umbrella/

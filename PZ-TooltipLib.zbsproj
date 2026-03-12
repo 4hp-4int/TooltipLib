@@ -1,0 +1,20 @@
+-- PZ-TooltipLib ZeroBrane Studio project configuration
+--
+-- Open this project: Project > Project Directory > Pick PZ-TooltipLib folder
+-- Or: zbstudio.exe --open "C:\Users\Khalen\Code\PZ-TooltipLib"
+
+local pzLua = "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua"
+
+package.path = table.concat({
+    -- TooltipLib own code
+    "media/lua/shared/?.lua",
+    "media/lua/shared/?/init.lua",
+    "media/lua/client/?.lua",
+    "media/lua/client/?/init.lua",
+    -- PZ vanilla Lua
+    pzLua .. "/shared/?.lua",
+    pzLua .. "/client/?.lua",
+    pzLua .. "/server/?.lua",
+    -- Default
+    package.path or "",
+}, ";")

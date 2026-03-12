@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "zomboid-knowledge": {
+      "command": "uv",
+      "args": ["--directory", "C:/Users/Khalen/Code/zomboid-knowledge-index", "run", "zk", "mcp"],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    "mdb-mem": {
+      "command": "node",
+      "args": ["C:/Users/Khalen/Code/mdb-mem/build/src/index.js"]
+    }
+  }
+}

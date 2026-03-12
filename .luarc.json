@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+  "runtime": {
+    "version": "Lua 5.1",
+    "special": {
+      "require": "require"
+    }
+  },
+  "diagnostics": {
+    "globals": [
+      "TooltipLib"
+    ],
+    "disable": [
+      "lowercase-global"
+    ]
+  },
+  "workspace": {
+    "library": [
+      ".umbrella"
+    ],
+    "ignoreDir": [
+      ".vscode",
+      ".umbrella"
+    ],
+    "checkThirdParty": false
+  },
+  "hint": {
+    "enable": true
+  }
+}
