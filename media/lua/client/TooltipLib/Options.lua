@@ -11,8 +11,6 @@
 -- saved state from ModOptions.ini back into _providerOverrides.
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 
 if not PZAPI or not PZAPI.ModOptions then

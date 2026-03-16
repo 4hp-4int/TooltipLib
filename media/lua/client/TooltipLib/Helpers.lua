@@ -27,8 +27,6 @@
 -- MUST also be added.
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 require "TooltipLib/Filters"
 

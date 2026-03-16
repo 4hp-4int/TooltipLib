@@ -21,8 +21,6 @@
 --   PHASE 4   - cleanup:     Restore item state (guaranteed to run)
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 require "TooltipLib/Filters"
 require "TooltipLib/Helpers"

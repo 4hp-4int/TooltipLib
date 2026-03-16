@@ -22,8 +22,6 @@
 -- enabled() signature: function(perk, level) -> boolean
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 require "TooltipLib/Helpers"
 

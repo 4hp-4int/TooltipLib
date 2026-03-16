@@ -35,8 +35,6 @@
 -- stateful per-frame).
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 require "TooltipLib/Helpers"
 

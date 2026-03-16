@@ -22,8 +22,6 @@
 -- enabled() signature: function(part, vehicle) -> boolean
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 require "TooltipLib/Helpers"
 

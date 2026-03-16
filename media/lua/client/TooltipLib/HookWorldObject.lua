@@ -17,8 +17,6 @@
 -- enabled() signature: function(object, square) -> boolean
 -- ============================================================================
 
-if isServer() then return end
-
 require "TooltipLib/Core"
 require "TooltipLib/Helpers"
 
