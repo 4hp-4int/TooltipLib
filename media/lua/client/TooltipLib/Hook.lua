@@ -31,9 +31,10 @@ pcall(function() require "Entity/ISUI/Components/Crafting/ISToolTipItemSlot" end
 local function InstallHook()
     -- Boot-time probe: ISToolTipInv must exist with a render function
     if not ISToolTipInv or type(ISToolTipInv.render) ~= "function" then
-        TooltipLib._log("WARN: ISToolTipInv.render not found — hook not installed. " ..
+        TooltipLib._warn("ISToolTipInv.render not found — hook not installed. " ..
             "Tooltip providers will not render. " ..
             "TooltipLib requires Project Zomboid Build 42.13.1+")
+        TooltipLib._hookStatus.item = "ISToolTipInv.render not found"
         return
     end
 
@@ -44,6 +45,11 @@ local function InstallHook()
     -- First-render API probe state (shared — only need to probe once)
     local apiProbed = false
     local apiDisabled = false
+
+    -- Context table pool: reuse tables across frames to reduce GC pressure.
+    -- Each entry is a raw table; reset and refill per dispatch call.
+    local ctxPool = {}
+    local ctxPoolSize = 0
 
     -- ================================================================
     -- Layout dispatch: phases 1-4 for Layout-family surfaces
@@ -59,23 +65,34 @@ local function InstallHook()
     -- @param fallbackDoTooltip function — original DoTooltip for error fallback
     local function doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld, surfaceName, extraFields, fallbackDoTooltip, deferStartY)
 
-        -- Build per-provider context tables.
+        -- Build per-provider context tables from pool.
         -- Each provider gets its own mutable context so preTooltip can
         -- stash state for cleanup (e.g., saved clip size).
+        local resetTable = TooltipLib._resetTable
+        local providerCount = #activeProviders
+        -- Grow pool if needed
+        for i = ctxPoolSize + 1, providerCount do
+            ctxPool[i] = {}
+            ctxPoolSize = i
+        end
         local contexts = {}
-        for i = 1, #activeProviders do
-            local ctx = setmetatable({
-                item = tooltipItem,
-                tooltip = tooltip,
-                detail = detailHeld,
-                surface = surfaceName,
-            }, TooltipLib._ContextMT)
+        for i = 1, providerCount do
+            local ctx = resetTable(ctxPool[i])
+            ctx.item = tooltipItem
+            ctx.tooltip = tooltip
+            ctx.detail = detailHeld
+            ctx.surface = surfaceName
+            setmetatable(ctx, TooltipLib._ContextMT)
             if extraFields then
                 for k, v in pairs(extraFields) do
                     ctx[k] = v
                 end
             end
             contexts[i] = ctx
+        end
+        -- Nil out stale entries beyond current provider count
+        for i = providerCount + 1, ctxPoolSize do
+            ctxPool[i] = resetTable(ctxPool[i])
         end
 
         -- ================================================================
@@ -585,6 +602,7 @@ local function InstallHook()
         end
     end
 
+    TooltipLib._hookStatus.item = true
     TooltipLib._log("ISToolTipInv hook installed (" ..
         TooltipLib.getProviderCount("item") .. " item providers)")
 
@@ -785,6 +803,7 @@ local function InstallHook()
             end
         end
 
+        TooltipLib._hookStatus.itemSlot = true
         TooltipLib._log("ISToolTipItemSlot hook installed (" ..
             TooltipLib.getProviderCount("itemSlot") .. " slot providers, " ..
             TooltipLib.getProviderCount("item") .. " item providers auto-applied)")

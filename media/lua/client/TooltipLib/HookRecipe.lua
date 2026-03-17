@@ -181,7 +181,7 @@ local function InstallRecipeHook()
 
         TooltipLib._log("Recipe panel hook installed (ISCraftRecipePanel)")
     else
-        TooltipLib._debugLog("ISCraftRecipePanel.createDynamicChildren not found — recipe panel hook not installed")
+        TooltipLib._warn("ISCraftRecipePanel.createDynamicChildren not found — recipe panel hook not installed")
     end
 
     -- ================================================================
@@ -208,9 +208,10 @@ local function InstallRecipeHook()
 
         TooltipLib._log("Recipe tooltip hook installed (ISCraftRecipeTooltip)")
     else
-        TooltipLib._debugLog("ISCraftRecipeTooltip.createDynamicChildren not found — recipe tooltip hook not installed")
+        TooltipLib._warn("ISCraftRecipeTooltip.createDynamicChildren not found — recipe tooltip hook not installed")
     end
 
+    TooltipLib._hookStatus.recipe = true
     TooltipLib._log("Recipe hooks installed (" ..
         TooltipLib.getProviderCount("recipe") .. " recipe providers)")
 end

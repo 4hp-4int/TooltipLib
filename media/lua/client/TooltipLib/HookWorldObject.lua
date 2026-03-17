@@ -150,6 +150,10 @@ end
 -- ============================================================================
 
 local function InstallWorldObjectHook()
+    -- Context table pool: reuse tables across frames to reduce GC pressure
+    local objCtxPool = {}
+    local objCtxPoolSize = 0
+
     -- ================================================================
     -- DoSpecialTooltip event listener
     -- ================================================================
@@ -197,18 +201,29 @@ local function InstallWorldObjectHook()
         local endY = 0
         local width = 0
         local hadContent = false
-        local contexts = {}
+        local resetTable = TooltipLib._resetTable
+        local providerCount = #activeProviders
 
-        -- Build per-provider context tables
-        for i = 1, #activeProviders do
-            contexts[i] = setmetatable({
-                object = object,
-                square = square,
-                tooltip = tooltip,
-                detail = detailHeld,
-                surface = "object",
-                helpers = TooltipLib.Helpers,
-            }, TooltipLib._ContextMT)
+        -- Build per-provider context tables from pool
+        for i = objCtxPoolSize + 1, providerCount do
+            objCtxPool[i] = {}
+            objCtxPoolSize = i
+        end
+        local contexts = {}
+        for i = 1, providerCount do
+            local ctx = resetTable(objCtxPool[i])
+            ctx.object = object
+            ctx.square = square
+            ctx.tooltip = tooltip
+            ctx.detail = detailHeld
+            ctx.surface = "object"
+            ctx.helpers = TooltipLib.Helpers
+            setmetatable(ctx, TooltipLib._ContextMT)
+            contexts[i] = ctx
+        end
+        -- Nil out stale entries beyond current provider count
+        for i = providerCount + 1, objCtxPoolSize do
+            objCtxPool[i] = resetTable(objCtxPool[i])
         end
 
         -- PHASE 1: preTooltip
@@ -457,6 +472,7 @@ local function InstallWorldObjectHook()
     -- were registered (timing depends on mod load order).
     scanLoadedChunks()
 
+    TooltipLib._hookStatus.object = true
     TooltipLib._log("World object hook installed (" ..
         TooltipLib.getProviderCount("object") .. " object providers)")
 end

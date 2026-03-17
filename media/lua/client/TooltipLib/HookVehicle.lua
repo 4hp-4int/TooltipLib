@@ -30,14 +30,16 @@ local function InstallVehicleHook()
     pcall(function() require "Vehicles/ISUI/ISVehicleMechanics" end)
 
     if not ISVehicleMechanics then
-        TooltipLib._debugLog("ISVehicleMechanics not found — vehicle hook not installed")
+        TooltipLib._warn("ISVehicleMechanics not found — vehicle hook not installed")
+        TooltipLib._hookStatus.vehicle = "ISVehicleMechanics not found"
         return
     end
 
     -- Hook doMenuTooltip: called for context menu option tooltips (right-click
     -- on vehicle parts). Appends to tooltip.description after vanilla builds it.
     if type(ISVehicleMechanics.doMenuTooltip) ~= "function" then
-        TooltipLib._debugLog("ISVehicleMechanics.doMenuTooltip not found — vehicle menu tooltip hook not installed")
+        TooltipLib._warn("ISVehicleMechanics.doMenuTooltip not found — vehicle menu tooltip hook not installed")
+        TooltipLib._hookStatus.vehicle = "ISVehicleMechanics.doMenuTooltip not found"
         return
     end
 
@@ -254,9 +256,10 @@ local function InstallVehicleHook()
 
         TooltipLib._log("Vehicle overlay tooltip hook installed")
     else
-        TooltipLib._debugLog("ISVehicleMechanics.renderCarOverlayTooltip not found — overlay tooltip hook not installed")
+        TooltipLib._warn("ISVehicleMechanics.renderCarOverlayTooltip not found — overlay tooltip hook not installed")
     end
 
+    TooltipLib._hookStatus.vehicle = true
     TooltipLib._log("Vehicle tooltip hook installed (" ..
         TooltipLib.getProviderCount("vehicle") .. " vehicle providers)")
 end

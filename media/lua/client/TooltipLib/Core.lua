@@ -12,10 +12,10 @@
 --   PATCH (1.0.1): Bug fixes only. No API surface changes.
 --
 -- PUBLIC API SURFACE (guaranteed stable within a major version):
---   Registration: registerProvider, removeProvider, hasProvider, getProviderCount
+--   Registration: registerProvider, removeProvider, replaceProvider, hasProvider, getProviderCount
 --   Recovery:     resetProvider
 --   Config:       setProviderEnabled, isProviderEnabled
---   Introspection: getProviders
+--   Introspection: getProviders, getHookStatus
 --   Cache:        invalidateCache, invalidateActiveProviders
 --   Version:      checkVersion, VERSION, VERSION_NUM
 --   Debug:        debug (boolean flag)
@@ -49,14 +49,14 @@
 --
 -- INTERNAL API (may change without notice, prefixed with _):
 --   _providers, _providersByTarget, _providerVersion,
---   _providerOverrides, _callbackCache, _errorCounts,
+--   _providerOverrides, _callbackCache, _errorCounts, _hookStatus,
 --   _recordError, _recordSuccess, _isDisabled,
 --   _getProvidersForTarget, _refreshProviderOptions,
---   _readDetailKey, _evaluateProviders,
+--   _readDetailKey, _evaluateProviders, _resetTable,
 --   _ContextMT, _RichTextContextMT, _RecipeContextMT, _RecipeContentPanel,
 --   _createRecordingContext, _replayDisplayList,
 --   _createRecordingRichTextContext, _replayRichTextDisplayList,
---   _getDetailKeyCode, _log, _logOnce, _debugLog
+--   _getDetailKeyCode, _log, _logOnce, _debugLog, _warn
 -- ============================================================================
 
 local CURRENT_VERSION = "1.0.0"
@@ -131,6 +131,7 @@ TooltipLib._providerOverrides = TooltipLib._providerOverrides or {}  -- id -> bo
 TooltipLib._callbackCache = TooltipLib._callbackCache or {}      -- providerId -> { itemId, cacheKey, displayList, frameRecorded }
 TooltipLib._errorCounts = TooltipLib._errorCounts or {}        -- providerId -> { consecutive, disabled }
 TooltipLib._markingPhase = false                                -- true during object marking (inRange bypasses distance check)
+TooltipLib._hookStatus = TooltipLib._hookStatus or {}            -- surface -> true (success) | string (failure reason)
 
 -- ============================================================================
 -- Error circuit breaker
@@ -450,6 +451,34 @@ function TooltipLib.removeProvider(id)
     return true
 end
 
+--- Atomically replace an existing provider with new options.
+--- Shorthand for removeProvider + registerProvider. Useful for mod overrides
+--- where another mod wants to replace a provider's behavior entirely.
+--- The new options must include the same id as the provider being replaced.
+---@param id string The provider ID to replace
+---@param newOptions TooltipLibProviderOptions New provider options (must have same id)
+---@return boolean success
+function TooltipLib.replaceProvider(id, newOptions)
+    if type(id) ~= "string" or id == "" then
+        TooltipLib._log("replaceProvider: id must be a non-empty string")
+        return false
+    end
+    if type(newOptions) ~= "table" then
+        TooltipLib._log("replaceProvider: newOptions must be a table")
+        return false
+    end
+    if newOptions.id ~= id then
+        TooltipLib._log("replaceProvider: newOptions.id must match id '" .. id .. "'")
+        return false
+    end
+    if not TooltipLib._providers[id] then
+        TooltipLib._log("replaceProvider: no existing provider '" .. id .. "' to replace")
+        return false
+    end
+    TooltipLib.removeProvider(id)
+    return TooltipLib.registerProvider(newOptions)
+end
+
 --- Re-enable a provider disabled by the error circuit breaker or user override.
 --- Resets error count, clears user override, clears caches, and forces
 --- L1 re-evaluation.
@@ -569,6 +598,19 @@ function TooltipLib.getProviders(target)
     return result
 end
 
+--- Get hook installation status for each surface.
+--- Consumer mods can call this after OnGameStart to verify their surface hooks
+--- are live. Returns a table where keys are surface names and values are true
+--- (success) or a string describing the failure reason.
+---@return table<string, boolean|string> status per surface
+function TooltipLib.getHookStatus()
+    local result = {}
+    for k, v in pairs(TooltipLib._hookStatus) do
+        result[k] = v
+    end
+    return result
+end
+
 --- Get the sorted provider list for a specific target. Internal use by hooks.
 ---@param target string Target name (e.g., "item", "object", "skill")
 ---@return table[] Sorted array of provider tables
@@ -605,6 +647,14 @@ function TooltipLib._log(msg)
     print("[TooltipLib] " .. tostring(msg))
 end
 
+--- Log a warning. Always prints, even when debug is false.
+--- Use for non-fatal issues that operators should notice (e.g., hook install
+--- failures, missing PZ APIs). Unlike _debugLog, this is never silent.
+---@param msg string Warning message
+function TooltipLib._warn(msg)
+    print("[TooltipLib] [WARN] " .. tostring(msg))
+end
+
 local loggedMessages = {}
 
 --- Log a message only once per key. Use for framework-level warnings
@@ -629,6 +679,16 @@ end
 -- ============================================================================
 -- Shared hook helpers (used by all hook files to eliminate duplication)
 -- ============================================================================
+
+--- Clear all keys from a table (for pool reuse). Returns the same table.
+---@param t table
+---@return table
+function TooltipLib._resetTable(t)
+    for k in pairs(t) do
+        t[k] = nil
+    end
+    return t
+end
 
 --- Inner function for _readDetailKey — hoisted to avoid closure allocation per frame.
 local function _readDetailKeyInner()

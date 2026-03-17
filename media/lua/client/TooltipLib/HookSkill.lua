@@ -30,7 +30,8 @@ local function InstallSkillHook()
     pcall(function() require "XpSystem/ISUI/ISSkillProgressBar" end)
 
     if not ISSkillProgressBar or type(ISSkillProgressBar.updateTooltip) ~= "function" then
-        TooltipLib._debugLog("ISSkillProgressBar.updateTooltip not found — skill hook not installed")
+        TooltipLib._warn("ISSkillProgressBar.updateTooltip not found — skill hook not installed")
+        TooltipLib._hookStatus.skill = "ISSkillProgressBar.updateTooltip not found"
         return
     end
 
@@ -149,6 +150,7 @@ local function InstallSkillHook()
         end
     end
 
+    TooltipLib._hookStatus.skill = true
     TooltipLib._log("Skill tooltip hook installed (" ..
         TooltipLib.getProviderCount("skill") .. " skill providers)")
 end
