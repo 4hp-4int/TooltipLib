@@ -134,7 +134,6 @@ TooltipLib._providerVersion = TooltipLib._providerVersion or 0     -- incremente
 TooltipLib._providerOverrides = TooltipLib._providerOverrides or {}  -- id -> boolean (false = user-disabled via setProviderEnabled)
 TooltipLib._callbackCache = TooltipLib._callbackCache or {}      -- providerId -> { itemId, cacheKey, displayList, frameRecorded }
 TooltipLib._errorCounts = TooltipLib._errorCounts or {}        -- providerId -> { consecutive, disabled }
-TooltipLib._markingPhase = false                                -- true during object marking (inRange bypasses distance check)
 TooltipLib._hookStatus = TooltipLib._hookStatus or {}            -- surface -> true (success) | string (failure reason)
 
 -- ============================================================================

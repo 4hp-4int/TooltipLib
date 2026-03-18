@@ -288,10 +288,6 @@ end
 ---@return fun(subject: InventoryItem|IsoObject): boolean
 function TooltipLib.Filters.inRange(maxTiles)
     return safeFilter("inRange:" .. tostring(maxTiles), function(subject)
-        -- During object marking phase, skip distance check — marking only
-        -- needs to know if the object TYPE matches, not if it's in range now
-        if TooltipLib._markingPhase then return true end
-
         local player = getPlayer()
         if not player then return false end
 
