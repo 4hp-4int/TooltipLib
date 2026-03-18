@@ -446,6 +446,10 @@ end
 --- Methods that fail or don't exist return nil (key absent from result).
 --- Only useful on object surface — returns empty table if ctx.object is nil.
 ---
+--- In MP (when ctx._mpData is populated by the framework), returns data from
+--- the server cache instead of calling Java methods directly. The fieldMap
+--- maps friendly names to method names; server data is keyed by method name.
+---
 --- Usage:
 ---   local data = ctx:readObject({
 ---       activated = "isActivated",
@@ -455,6 +459,17 @@ end
 ---@param fieldMap table<string, string> Map of result key -> Java method name
 ---@return table<string, any> Result table (nil values omitted)
 function ContextMT:readObject(fieldMap)
+    -- MP path: return from server-synced cache
+    local mpData = self._mpData
+    if mpData and mpData.fields then
+        local result = {}
+        for key, method in pairs(fieldMap) do
+            local val = mpData.fields[method]
+            if val ~= nil then result[key] = val end
+        end
+        return result
+    end
+    -- SP path: call Java methods directly
     local obj = self.object
     if not obj then return {} end
     local result = {}
@@ -472,12 +487,27 @@ end
 --- Returns the method's return value, or nil on error / missing method.
 --- Only useful on object surface — returns nil if ctx.object is nil.
 ---
+--- In MP, intercepts "getModData" to return ctx._mpData.modData, and returns
+--- other fields from ctx._mpData.fields.
+---
 --- Usage:
 ---   local fuel = ctx:safeCall("getFuelPercentage")
 ---@param methodName string Java method name on the object
 ---@param ... any Additional arguments to pass to the method
 ---@return any|nil Return value or nil on error
 function ContextMT:safeCall(methodName, ...)
+    -- MP path: return from server-synced cache
+    local mpData = self._mpData
+    if mpData then
+        if methodName == "getModData" and mpData.modData then
+            return mpData.modData
+        end
+        if mpData.fields and mpData.fields[methodName] ~= nil then
+            return mpData.fields[methodName]
+        end
+        return nil
+    end
+    -- SP path: call Java method directly
     local obj = self.object
     if not obj then return nil end
     local fn = obj[methodName]
@@ -485,6 +515,67 @@ function ContextMT:safeCall(methodName, ...)
     local ok, val = pcall(fn, obj, ...)
     if ok then return val end
     return nil
+end
+
+--- Read container metadata from all containers on ctx.object.
+--- Works transparently in both SP (direct Java calls) and MP (server cache).
+---
+--- Returns an array of tables, one per container:
+---   { type = string, weight = number, capacity = number,
+---     itemCount = number, powered = boolean }
+---
+--- Usage:
+---   local containers = ctx:readContainers()
+---   for _, c in ipairs(containers) do
+---       ctx:addProgress(c.type .. ":", c.weight / c.capacity)
+---   end
+---@return table[] Array of container metadata tables
+function ContextMT:readContainers()
+    -- MP path: return from server-synced cache
+    local mpData = self._mpData
+    if mpData and mpData.containers then return mpData.containers end
+    -- SP path: read from Java directly
+    local obj = self.object
+    if not obj then return {} end
+    local result = {}
+    local ok, count = pcall(obj.getContainerCount, obj)
+    if not ok or not count then return {} end
+    for i = 0, count - 1 do
+        local cOk, c = pcall(obj.getContainerByIndex, obj, i)
+        if cOk and c then
+            local entry = {}
+            local tOk, t = pcall(c.getType, c)
+            if tOk then entry.type = t end
+            local wOk, w = pcall(c.getContentsWeight, c)
+            if wOk then entry.weight = w end
+            local capOk, cap = pcall(c.getCapacity, c)
+            if capOk then entry.capacity = cap end
+            local iOk, items = pcall(c.getItems, c)
+            if iOk and items then
+                local sOk, s = pcall(items.size, items)
+                if sOk then entry.itemCount = s end
+            end
+            local pOk, p = pcall(c.isPowered, c)
+            if pOk then entry.powered = p end
+            result[#result + 1] = entry
+        end
+    end
+    return result
+end
+
+--- Check if ctx.object is locked (IsoThumpable only).
+--- Works transparently in both SP (direct Java call) and MP (server cache).
+---@return boolean
+function ContextMT:readLocked()
+    -- MP path: return from server-synced cache
+    local mpData = self._mpData
+    if mpData and mpData.locked ~= nil then return mpData.locked end
+    -- SP path: direct check
+    local obj = self.object
+    if not obj then return false end
+    if not instanceof(obj, "IsoThumpable") then return false end
+    local ok, locked = pcall(obj.isLocked, obj)
+    return ok and locked == true
 end
 
 -- Expose for Hook.lua

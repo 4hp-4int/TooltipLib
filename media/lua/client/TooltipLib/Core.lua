@@ -35,7 +35,7 @@
 --                  ctx:addInteger, ctx:addSpacer, ctx:addHeader, ctx:addDivider,
 --                  ctx:addText, ctx:addFloat, ctx:addPercentage
 --   Context (layout only): ctx:addTexture, ctx:addTextureRow
---   Context (object only): ctx:readObject, ctx:safeCall
+--   Context (object only): ctx:readObject, ctx:safeCall, ctx:readContainers, ctx:readLocked
 --   Context (rich text only): ctx:appendLine, ctx:appendKeyValue,
 --                  ctx:appendRichText, ctx:setName
 --   Context fields: ctx.item, ctx.tooltip, ctx.layout, ctx.helpers, ctx.detail,
@@ -45,7 +45,9 @@
 --   Provider options: id, target, priority, callback, enabled, preTooltip,
 --                     postRender, cleanup, cacheable, cacheKey, maxAge,
 --                     minVersion, separator, detailOnly, description,
---                     minWidth, replacesVanilla
+--                     minWidth, replacesVanilla,
+--                     mpFields, mpContainers, mpModData, mpLocked, mpSquareScan
+--   MP:           allowMPMethod
 --
 -- INTERNAL API (may change without notice, prefixed with _):
 --   _providers, _providersByTarget, _providerVersion,
@@ -56,11 +58,13 @@
 --   _ContextMT, _RichTextContextMT, _RecipeContextMT, _RecipeContentPanel,
 --   _createRecordingContext, _replayDisplayList,
 --   _createRecordingRichTextContext, _replayRichTextDisplayList,
---   _getDetailKeyCode, _log, _logOnce, _debugLog, _warn
+--   _getDetailKeyCode, _log, _logOnce, _debugLog, _warn,
+--   _mpAllowedMethods, _isMPMethodAllowed,
+--   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
 
-local CURRENT_VERSION = "1.0.0"
-local CURRENT_VERSION_NUM = 1
+local CURRENT_VERSION = "1.1.0"
+local CURRENT_VERSION_NUM = 2
 
 -- Version guard: if a newer version is already loaded, do not replace it
 if TooltipLib and TooltipLib.VERSION_NUM
@@ -132,6 +136,42 @@ TooltipLib._callbackCache = TooltipLib._callbackCache or {}      -- providerId -
 TooltipLib._errorCounts = TooltipLib._errorCounts or {}        -- providerId -> { consecutive, disabled }
 TooltipLib._markingPhase = false                                -- true during object marking (inRange bypasses distance check)
 TooltipLib._hookStatus = TooltipLib._hookStatus or {}            -- surface -> true (success) | string (failure reason)
+
+-- ============================================================================
+-- MP method whitelist (shared between Core registration and MPServer)
+-- ============================================================================
+-- Methods the server is allowed to call when a client requests object data.
+-- Populated automatically from provider mpFields at registration time.
+-- Third-party mods can add their own via allowMPMethod().
+
+TooltipLib._mpAllowedMethods = TooltipLib._mpAllowedMethods or {}
+
+--- Whitelist a Java method name for MP object data reads.
+--- The server will only call methods that pass the whitelist check.
+--- Methods starting with "get", "is", "has", "check" are allowed by default.
+--- Use this for non-standard getter names (e.g., "Activated").
+---@param methodName string The Java method name to whitelist
+function TooltipLib.allowMPMethod(methodName)
+    if type(methodName) == "string" and methodName ~= "" then
+        TooltipLib._mpAllowedMethods[methodName] = true
+    end
+end
+
+--- Check if a method name is allowed for MP reads.
+--- Allows: any method in the explicit whitelist, or methods starting with
+--- "get", "is", "has", "check" (standard Java getter prefixes).
+---@param methodName string
+---@return boolean
+function TooltipLib._isMPMethodAllowed(methodName)
+    if TooltipLib._mpAllowedMethods[methodName] then return true end
+    local prefix = methodName:sub(1, 3)
+    if prefix == "get" or prefix == "has" then return true end
+    local prefix2 = methodName:sub(1, 2)
+    if prefix2 == "is" then return true end
+    local prefix5 = methodName:sub(1, 5)
+    if prefix5 == "check" then return true end
+    return false
+end
 
 -- ============================================================================
 -- Error circuit breaker
@@ -260,6 +300,11 @@ end
 ---@field detailOnly? boolean Only show when detail key is held (default false)
 ---@field minWidth? number Minimum tooltip width in pixels (default 150)
 ---@field replacesVanilla? boolean Draw opaque bg to cover vanilla content (object surface only, default false)
+---@field mpFields? string[] Java method names to call on server for MP data (object surface)
+---@field mpContainers? boolean Request container metadata from server (object surface)
+---@field mpModData? string[] ModData field names to read from server (object surface)
+---@field mpLocked? boolean Request isLocked check from server (object surface)
+---@field mpSquareScan? boolean Scan all objects on square for modData if not found on target (object surface)
 
 --- Register a tooltip content provider.
 ---@param options TooltipLibProviderOptions
@@ -366,6 +411,27 @@ function TooltipLib.registerProvider(options)
             "'. Valid targets: item, itemSlot, object, skill, vehicle, recipe")
         return false
     end
+    -- MP field validation (object surface only)
+    if options.mpFields ~= nil and type(options.mpFields) ~= "table" then
+        TooltipLib._log("registerProvider: mpFields must be a table (array of method name strings)")
+        return false
+    end
+    if options.mpContainers ~= nil and type(options.mpContainers) ~= "boolean" then
+        TooltipLib._log("registerProvider: mpContainers must be a boolean")
+        return false
+    end
+    if options.mpModData ~= nil and type(options.mpModData) ~= "table" then
+        TooltipLib._log("registerProvider: mpModData must be a table (array of modData key strings)")
+        return false
+    end
+    if options.mpLocked ~= nil and type(options.mpLocked) ~= "boolean" then
+        TooltipLib._log("registerProvider: mpLocked must be a boolean")
+        return false
+    end
+    if options.mpSquareScan ~= nil and type(options.mpSquareScan) ~= "boolean" then
+        TooltipLib._log("registerProvider: mpSquareScan must be a boolean")
+        return false
+    end
 
     -- Debug warning: provider without enabled() filter runs for ALL items
     if TooltipLib.debug and not options.enabled then
@@ -401,6 +467,13 @@ function TooltipLib.registerProvider(options)
         if maxAge == 0 then maxAge = nil end -- 0 means infinite (no auto-refresh)
     end
 
+    -- Auto-whitelist mpFields method names for server-side calls
+    if options.mpFields then
+        for i = 1, #options.mpFields do
+            TooltipLib._mpAllowedMethods[options.mpFields[i]] = true
+        end
+    end
+
     TooltipLib._providers[options.id] = {
         id          = options.id,
         target      = options.target or "item",
@@ -418,6 +491,12 @@ function TooltipLib.registerProvider(options)
         description     = options.description,
         minWidth        = options.minWidth,
         replacesVanilla = options.replacesVanilla or false,
+        -- MP sync fields (object surface)
+        mpFields      = options.mpFields,
+        mpContainers  = options.mpContainers or false,
+        mpModData     = options.mpModData,
+        mpLocked      = options.mpLocked or false,
+        mpSquareScan  = options.mpSquareScan or false,
     }
 
     local provider = TooltipLib._providers[options.id]
@@ -733,7 +812,6 @@ function TooltipLib._evaluateProviders(providers, detailHeld, arg1, arg2)
                 TooltipLib._recordError(p.id)
                 active = false
             else
-                TooltipLib._recordSuccess(p.id)
                 active = eResult == true
             end
         end
