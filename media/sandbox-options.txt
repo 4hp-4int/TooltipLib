@@ -1,0 +1,9 @@
+VERSION = 1,
+
+option TooltipLib.EnableMPSync
+{
+    type = boolean,
+    default = true,
+    page = TooltipLib,
+    translation = TooltipLib_EnableMPSync,
+}

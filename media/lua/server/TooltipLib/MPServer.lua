@@ -207,6 +207,9 @@ end
 Events.OnClientCommand.Add(function(module, command, player, args)
     if module ~= MODULE then return end
     if command ~= "readObject" then return end
+    if SandboxVars.TooltipLib and SandboxVars.TooltipLib.EnableMPSync == false then
+        return
+    end
     if not args then return end
 
     -- Validate coordinates
