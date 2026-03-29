@@ -292,6 +292,7 @@ function TooltipLib.Filters.inRange(maxTiles)
         if not player then return false end
 
         -- Determine world position to measure from
+        -- pcall getX/getY/getZ: Java object ref can be invalidated between frames
         local wx, wy, wz
         if instanceof(subject, "InventoryItem") then
             local container = subject:getContainer()
@@ -299,9 +300,17 @@ function TooltipLib.Filters.inRange(maxTiles)
             local parent = container:getParent()
             if not parent then return true end
             if parent == player then return true end -- player's own inventory
-            wx, wy, wz = parent:getX(), parent:getY(), parent:getZ()
+            local ok1, x = pcall(parent.getX, parent)
+            local ok2, y = pcall(parent.getY, parent)
+            local ok3, z = pcall(parent.getZ, parent)
+            if not ok1 or not ok2 or not ok3 then return false end
+            wx, wy, wz = x, y, z
         else
-            wx, wy, wz = subject:getX(), subject:getY(), subject:getZ()
+            local ok1, x = pcall(subject.getX, subject)
+            local ok2, y = pcall(subject.getY, subject)
+            local ok3, z = pcall(subject.getZ, subject)
+            if not ok1 or not ok2 or not ok3 then return false end
+            wx, wy, wz = x, y, z
         end
 
         if not wx or not wy or not wz then return true end
