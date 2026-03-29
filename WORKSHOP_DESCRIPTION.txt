@@ -1,220 +1,108 @@
-[h1]TooltipLib[/h1]
-[i]Because eight of you wrote the same hook and all eight of you wrote it wrong.[/i]
-[hr][/hr]
+[img]https://pz-mod-images.us-southeast-1.linodeobjects.com/tooltiplib-banner.png[/img]
 
-[h2]The Problem[/h2]
+Half the Workshop independently hooks ISToolTipInv.render to add content to item tooltips. Every one of them saves the original function, replaces it with their own, crosses its fingers, and ships. Load two together and it's a coin flip whose content shows up.
 
-There are 8+ mods on the Workshop that independently hook [code]ISToolTipInv.render[/code] to add content to item tooltips. Authentic Z. StarlitLibrary. Show Weapon Stats Plus. ArmorMakesSense. BurdSurvivalJournals. More every month. Each one written by someone who thought they were the only person who'd ever need to touch a tooltip.
+TooltipLib fixes this. One managed hook per surface. Mods register as providers instead of fighting over who owns the render function. Priority ordering, error isolation, automatic column alignment, two-tier caching. Install it and every tooltip mod works together — aligned, organized, conflict-free.
 
-Every one of them does the same thing: save the original function, replace it with their own, cross their fingers, and ship it. Load two of these together and it's a coin flip whose content shows up. Load three and you're staring at vanilla stats wondering where your mod went. Load four and you're reading someone else's metatable swap at 2 AM, tracing a call stack that looks like it was designed by a committee that never met.
-
-I've watched this happen for long enough. I've debugged other people's render hooks at hours no one should be awake. I've answered the same "why don't my tooltips show up" question in enough Discord threads to wallpaper a room. I've seen good mods — genuinely good mods — break each other because they all independently reinvented the same 80-line hook and none of them knew the others existed.
-
-[b]This is a solved problem.[/b] It's been a solved problem since the first time two mods needed the same hook. I just had to be the one to actually solve it, because apparently nobody else was going to.
+[img]https://pz-mod-images.us-southeast-1.linodeobjects.com/tooltiplib-flow.png[/img]
 
 [hr][/hr]
 
-[h2]What It Does[/h2]
+[b]For Players[/b]
 
-TooltipLib provides a single shared tooltip pipeline across [b]6 tooltip surfaces[/b]. Instead of eight mods fighting over who gets to hook [code]ISToolTipInv.render[/code] this week, mods register as [b]providers[/b] and add content through an API that was designed by someone who has made every possible mistake already and would prefer not to watch you make them again.
+Install it. If a mod lists TooltipLib as a dependency, install TooltipLib. No configuration. No load order fiddling. No compatibility patches.
 
-[list]
-[*] [b]One hook, many providers.[/b] TooltipLib owns the hooks. All six of them. Your mod registers a callback and stops worrying about what load order it ended up in. That's my problem now. You're welcome.
-[*] [b]6 surfaces.[/b] Items, crafting slots, world objects, skill bars, vehicle parts, crafting recipes. One API. Six targets. I got tired of writing separate hook code for each surface, so I made it so you'd never have to.
-[*] [b]Guaranteed ordering.[/b] Providers run in priority order. Every time. On every surface. Armor info before weapon info, always. Not "usually." Not "unless someone else loaded first." Always.
-[*] [b]Single layout.[/b] Vanilla stats, armor burden, weapon affixes — all rendered in one layout pass. Progress bars, labels, and values align across providers automatically. You know why they align? Because I spent three days getting the column math right so you could spend zero.
-[*] [b]Error isolation.[/b] One mod crashes? The rest keep rendering. After 10 consecutive crashes, the framework benches the offender and logs exactly why. I'm not going to let your neighbor's nil reference take down your tooltip.
-[*] [b]Cleanup guarantee.[/b] If your [code]preTooltip[/code] modified item state, [code]cleanup[/code] runs even if everything between it and the heat death of the universe fails. I've been bitten by cleanup not running. You learn that lesson exactly once and then you wrap everything in pcall for the rest of your career.
-[/list]
+Optional: install [url=https://steamcommunity.com/workshop/filedetails/?id=3408338824]Umbrella[/url] for the Mod Options panel. Toggle individual providers on or off, rebind the detail key (default: Left Shift). Works fine without Umbrella — the defaults are considered.
+
+Safe to add mid-save. Safe to remove mid-save. No persistent state. Writes nothing to your save file.
 
 [hr][/hr]
 
-[h2]For Players[/h2]
+[img]https://pz-mod-images.us-southeast-1.linodeobjects.com/header-surfaces.png[/img]
 
-[b]You don't need to do anything.[/b] If you're running mods that use TooltipLib, install this and they work together. No configuration. No load order fiddling. No compatibility patches. I handled it. Go play the game.
+[b]Item[/b] — Inventory tooltips. The one everyone fights over. Not anymore.
+[b]Item Slot[/b] — Crafting panel slots. Item providers auto-apply here.
+[b]World Object[/b] — Generators, fridges, rain collectors, containers — anything in the world.
+[b]Skill[/b] — Character skill bars. Rich text.
+[b]Vehicle[/b] — Mechanic overlay part tooltips. Rich text.
+[b]Recipe[/b] — Build 42 crafting recipe side panel.
 
-If a mod lists TooltipLib as a dependency, install it. That's the whole process. I'm not going to make this complicated. There are enough complicated things in your mod list already.
-
-[b]Optional:[/b] Install [url=https://steamcommunity.com/workshop/filedetails/?id=3408338824]Umbrella[/url] for the Mod Options panel — rebind the detail key, toggle individual providers on/off. Works fine without it. The defaults exist because I spent longer picking them than I'm willing to admit.
+All six share the same context method interface. Write a provider once, point it at any surface.
 
 [hr][/hr]
 
-[h2]For Mod Authors[/h2]
+[img]https://pz-mod-images.us-southeast-1.linodeobjects.com/header-formodders.png[/img]
 
-[h3]The Pitch[/h3]
-
-You know that 80-line metatable dance you wrote? The one that saves [code]ISToolTipInv.render[/code], wraps [code]DoTooltip[/code], manages the layout lifecycle, does nested pcalls, computes tooltip width, and restores the metatable after render? The one you copied from the last guy who copied it from a forum post from 2019 that had a bug in it that nobody noticed because it only fires when two mods load in a specific order on a Tuesday?
-
-Replace it with this:
+One call. No hooking, no metatable juggling, no layout lifecycle.
 
 [code]
+require "TooltipLib/Core"
+
 TooltipLib.registerProvider({
-    id = "MyMod",
-    callback = function(ctx)
-        ctx:addHeader("My Mod")
-        ctx:addKeyValue("Stat:", "+10%", nil, TooltipLib.Colors.GREEN)
-        ctx:addProgress("XP:", 0.75)
-        ctx:addDivider()
-        ctx:addLabel("Some flavor text", TooltipLib.Colors.GRAY)
-    end,
-})
-[/code]
-
-That's it. No metatable juggling. No pcall nesting. No layout lifecycle. No width calculation. No hook fights. No "works on my machine." I wrote the hook once, correctly, with error handling, so you can stop writing it eight times, incorrectly, without.
-
-[h3]6 Surfaces, One API[/h3]
-
-Every surface shares the same [code]ctx:add*[/code] methods. Write a provider once, point it at any surface. The framework handles the difference between a layout-based item tooltip and a rich-text skill bar and a widget-based recipe panel. You don't have to know how those work. That's the point. I already know how they work, and I wish I didn't.
-
-[list]
-[*] [b]Item[/b] — [code]ISToolTipInv[/code]. Your inventory. [code]ctx.item[/code], [code]ctx.detail[/code], [code]ctx.layout[/code]. The surface everyone fights over. Not anymore.
-[*] [b]Item Slot[/b] — [code]ISToolTipItemSlot[/code]. Crafting panel slots. Item providers auto-apply here because of course you want the same info in crafting as in inventory. Check [code]ctx.surface == "itemSlot"[/code] if you disagree.
-[*] [b]World Object[/b] — [code]DoSpecialTooltip[/code] event. Generators, fridges, rain collectors, anything bolted to the ground that vanilla forgot to give a real tooltip. [code]ctx.object[/code], [code]ctx.square[/code].
-[*] [b]Skill[/b] — [code]ISSkillProgressBar[/code]. Character info skill bars. [code]ctx.perk[/code], [code]ctx.level[/code], [code]ctx.player[/code]. Rich text. PZ's rich text engine is... what it is.
-[*] [b]Vehicle[/b] — [code]ISVehicleMechanics[/code]. The mechanic overlay. [code]ctx.part[/code], [code]ctx.vehicle[/code], [code]ctx.player[/code]. Also rich text. I didn't choose this.
-[*] [b]Recipe[/b] — [code]ISCraftRecipeTooltip[/code]. Crafting recipe panels. [code]ctx.recipe[/code], [code]ctx.rootTable[/code]. Widget-based rendering, which is exactly as fun to hook as it sounds.
-[/list]
-
-Target a surface with [code]target = "object"[/code] (or [code]"skill"[/code], [code]"vehicle"[/code], [code]"recipe"[/code]). Default is [code]"item"[/code], because that's what 90% of you are here for and we both know it.
-
-[h3]What You Get[/h3]
-
-[list]
-[*] [b]Unified context methods:[/b] [code]ctx:addLabel()[/code], [code]ctx:addKeyValue()[/code], [code]ctx:addProgress()[/code], [code]ctx:addHeader()[/code], [code]ctx:addDivider()[/code], [code]ctx:addSpacer()[/code], [code]ctx:addInteger()[/code], [code]ctx:addFloat()[/code], [code]ctx:addPercentage()[/code], [code]ctx:addText()[/code]. Ten methods. That's enough. If it's not enough, you're putting too much in a tooltip.
-[*] [b]Texture support (layout surfaces):[/b] [code]ctx:addTexture()[/code] and [code]ctx:addTextureRow()[/code]. Draw item icons on tooltips without writing postRender code. I wrote the postRender code so you don't have to learn what [code]endY[/code] tracking is.
-[*] [b]Rich text methods (skill/vehicle):[/b] [code]ctx:appendLine()[/code], [code]ctx:appendRichText()[/code], [code]ctx:setName()[/code]. For when you need direct control over PZ's rich text markup. I don't recommend it, but I'm not your mother.
-[*] [b]Recipe access:[/b] [code]ctx.rootTable[/code] for direct ISTableLayout widget control. For when the unified API isn't enough and you want to fight XUI yourself. Good luck.
-[*] [b]Color palette:[/b] [code]TooltipLib.Colors.GREEN[/code], [code].RED[/code], [code].GOLD[/code], [code].PURPLE[/code], etc. Frozen read-only — you can't mutate them, and yes, someone tried, and yes, that's why they're frozen. Or pass your own [code]{r, g, b, a}[/code].
-[*] [b]Priority constants:[/b] [code]TooltipLib.Priorities.FIRST[/code] through [code].LAST[/code]. Or omit priority and let the framework auto-assign. It'll put you after DEFAULT and before LATE. You'll be fine. Trust me or don't.
-[*] [b]Pre-built filters:[/b] [code]TooltipLib.Filters.weapon[/code], [code].food[/code], [code].clothing[/code], [code].generator[/code], [code].farmPlant[/code], [code].inRange(tiles)[/code], plus [code]allOf[/code] / [code]anyOf[/code] / [code]negate[/code] combinators. Every filter is pcall-hardened. If PZ removes [code]IsWeapon()[/code] tomorrow, the filter returns false instead of nuking your mod. You wouldn't have thought of that. I did. Because I've seen it happen.
-[*] [b]Detail mode:[/b] [code]ctx.detail[/code] is [code]true[/code] when the player holds the modifier key (default: LShift). Set [code]detailOnly = true[/code] to hide your provider until then. Rebindable in Mod Options, because not everyone has the same keyboard and I've met enough left-handed people to know that.
-[*] [b]5-phase lifecycle:[/b] [code]preTooltip[/code] → [code]callback[/code] → [code]textures[/code] → [code]postRender[/code] → [code]cleanup[/code]. Five phases. In order. Every time. [code]cleanup[/code] is guaranteed even if your [code]callback[/code] divides by zero. Ask me how I know.
-[*] [b]Automatic caching:[/b] Set [code]cacheable = true[/code] and your callback records once, replays for free. [code]maxAge[/code] defaults to ~1 second because I don't trust you to invalidate your own cache and I've been right about that every time so far.
-[*] [b]Auto-separator:[/b] Spacer lines between providers appear automatically. If your provider adds nothing, no stale spacer. You don't manage it. You can't mess it up. Believe me, I tried to find a way to let you mess it up, and I couldn't, and that's how I know it's correct.
-[*] [b]Circuit breaker:[/b] 10 consecutive errors and your provider gets benched for the session. One success resets the count. [code]resetProvider(id)[/code] if you want to un-bench it. Someone once told me this was "overengineered." I wrote them a 400-line email explaining why it wasn't. From my phone. On a bus.
-[*] [b]Provider overrides:[/b] Players can toggle individual providers on or off via Mod Options or [code]setProviderEnabled(id, false)[/code]. The user's choice wins. Always. I'm not going to argue with the person playing the game.
-[*] [b]Debug mode:[/b] [code]TooltipLib.debug = true[/code]. Cache hits, misses, L1/L2 refreshes, maxAge expirations, texture processing. Everything I needed to debug this framework, handed to you so you can debug your provider. You're welcome.
-[*] [b]Direct layout access:[/b] [code]ctx.layout[/code] is still there if you want to go raw. I won't stop you. I will quietly judge you.
-[*] [b]Soft dependency:[/b] Check [code]if TooltipLib then[/code] and fall back to your own hook if it's not installed. I'd rather you used mine. But I'm not going to break your mod over it.
-[*] [b]EmmyLua annotations:[/b] Full type annotations. Your IDE will autocomplete. Your IDE will type-check. Your IDE will know more about this API than you do, and I consider that a feature.
-[/list]
-
-[h3]Quick Examples[/h3]
-
-[b]World object provider:[/b]
-[code]
-TooltipLib.registerProvider({
-    id = "MyMod_Generator",
-    target = "object",
-    enabled = TooltipLib.Filters.allOf(
-        TooltipLib.Filters.generator,
-        TooltipLib.Filters.inRange(8)
-    ),
-    callback = function(ctx)
-        local gen = ctx.object
-        ctx:addKeyValue("Fuel:", string.format("%.0f%%", gen:getFuel()))
-        ctx:addProgress("Condition:", gen:getCondition() / 100)
-    end,
-})
-[/code]
-
-[b]Item provider with caching and detail mode:[/b]
-[code]
-TooltipLib.registerProvider({
-    id = "MyWeaponMod",
-    target = "item",
-    priority = TooltipLib.Priorities.DEFAULT,
-    cacheable = true,
-    enabled = TooltipLib.Filters.weapon,
-    description = "Weapon mastery info",  -- shows in Mod Options
-
-    preTooltip = function(ctx)
-        ctx._savedClip = ctx.item:getClipSize()
-        ctx.item:setClipSize(ctx._savedClip + 10)
-    end,
-
-    callback = function(ctx)
-        ctx:addLabel("Custom Damage: +15%", TooltipLib.Colors.GREEN)
+    id          = "MyMod_WeaponStats",
+    target      = "item",
+    enabled     = TooltipLib.Filters.weapon,
+    cacheable   = true,
+    description = "Weapon damage stats",
+    callback    = function(ctx)
+        ctx:addKeyValue("Damage:", "+15%", nil, TooltipLib.Colors.GREEN)
         ctx:addProgress("Mastery:", 0.75, nil, TooltipLib.Colors.GOLD)
-        if ctx.detail then
-            ctx:addKeyValue("Kill Count:", "247")
-        end
-    end,
-
-    cleanup = function(ctx)
-        ctx.item:setClipSize(ctx._savedClip)
     end,
 })
 [/code]
 
-[b]Skill tooltip provider:[/b]
-[code]
-TooltipLib.registerProvider({
-    id = "MyMod_Skill",
-    target = "skill",
-    callback = function(ctx)
-        ctx:addKeyValue("XP Rate:", "+25%", nil, TooltipLib.Colors.GREEN)
-        ctx:addLabel("Bonus active", TooltipLib.Colors.GOLD)
-    end,
-})
-[/code]
+The framework handles the hook, the layout, the error handling, and the caching. Your callback adds content.
+
+[b]Error isolation.[/b] Every callback runs inside pcall. Provider A fails, providers B through Z keep rendering. Circuit breaker benches repeat offenders after 10 consecutive errors. Cleanup phase runs unconditionally — if your preTooltip modified item state and your callback divided by zero, cleanup still fires.
+
+[b]Filtering.[/b] 14 item filters, 3 world object filters, factory functions for custom cases, combinators (allOf, anyOf, negate). Every filter is pcall-hardened.
+
+[b]Context methods.[/b] Ten common methods for all surfaces:
+[code]addLabel  addKeyValue  addProgress  addInteger  addFloat
+addPercentage  addSpacer  addHeader  addDivider  addText[/code]
+Layout surfaces (item, itemSlot, object) add texture rendering. Rich text surfaces (skill, vehicle) add line-level formatting.
+
+[b]5-phase lifecycle.[/b] preTooltip → callback → textures → postRender → cleanup. In order. Every time.
+
+[b]Full documentation:[/b] GUIDE_URL_HERE
 
 [hr][/hr]
 
-[h2]Compatibility[/h2]
+[b]Multiplayer[/b]
 
-[b]Build 42.13.1+ required.[/b]
+Item, skill, vehicle, and recipe surfaces are fully client-side. Zero server traffic.
 
+World objects use a request-response pipeline on dedicated servers. Client sends one request per object. Server reads whitelisted methods only — getters and boolean checks. No mutations, no arbitrary invocation. Responses cached client-side. Sandbox option EnableMPSync lets admins disable the pipeline.
+
+Singleplayer and listen servers read directly. No network overhead.
+
+[hr][/hr]
+
+[b]Compatibility[/b]
+
+Works alongside mods that hook ISToolTipInv.render directly — deferred mode detects the foreign hook and renders provider content below it. Works with Inventory Tetris, Equipment UI, and other UI-replacing mods. Multiple mods can bundle TooltipLib — version guard ensures newest copy loads, older ones skip silently.
+
+[hr][/hr]
+
+[b]Mods Using TooltipLib[/b]
+
+[url=WORKSHOP_URL_HERE][b]Sauce Tooltips[/b][/url] — 20 providers across all 6 surfaces. Generators, food freshness, farm plants, containers, fridges, stoves, lamps, vehicles, crafting.
+[url=WORKSHOP_URL_HERE][b]VorpallySauced[/b][/url] — Weapon progression tooltips. Affixes, mastery, kill tracking.
+
+[hr][/hr]
+
+[b]Requirements[/b]
 [list]
-[*] Works with vanilla PZ. Obviously.
-[*] Works alongside mods that hook [code]ISToolTipInv.render[/code] directly. They don't know about me. I know about them. Deferred mode detects the foreign hook and renders provider content below it. Columns align with each other, not with the other framework's output, because the other framework didn't ask to coordinate and I can't make it. It's the best possible outcome without their cooperation. It works. I tested it more than they tested theirs.
-[*] Works with any mod that calls [code]item:DoTooltip(tooltip)[/code] from Lua.
-[*] Safe to add mid-save. Safe to remove mid-save. I don't write to your save file. I don't write to anything. I render pixels and I forget them immediately.
+[*] Build 42.13.1+
+[*] Safe to add or remove mid-save
+[*] No persistent state, no save writes
 [/list]
 
-[h3]Mods Using TooltipLib[/h3]
-
-[list]
-[*] [b]VorpallySauced[/b] — Weapon progression tooltips (affixes, kill tracking, mastery)
-[/list]
-
-[hr][/hr]
-
-[h2]Multiplayer[/h2]
-
-[b]Client-only. Zero server footprint.[/b] I shouldn't have to say this, but I've read enough bug reports to know that I do.
-
-[list]
-[*] [b]No server install needed.[/b] Runs entirely on the client. The server doesn't know this exists and doesn't need to.
-[*] [b]No network traffic.[/b] Zero packets. I read item state that's already synced by the game and render it locally. I didn't invent new data. I just display the data PZ already has. On the screen. Where you can see it. What a concept.
-[*] [b]No persistent state.[/b] Nothing written to ModData, save files, or item state. Tooltips render per-frame and vanish like they were never there.
-[*] [b]No idle cost.[/b] The hooks only fire when someone is actively hovering a tooltip. No background tick. No polling. If you're not looking at a tooltip, I'm not running. I've got nothing to prove.
-[*] [b]Safe to add or remove mid-session.[/b] No migration. No cleanup. Nothing changes server-side. Install it, uninstall it, reinstall it. I don't care. Nothing breaks.
-[/list]
-
-[hr][/hr]
-
-[h2]Source[/h2]
-
-Open source. Read it, fork it, tell me what I got wrong. I've been writing code long enough that hearing I'm wrong is less painful than shipping a bug I could have caught. If you find something, say something. I'll fix it and I won't be precious about it.
-
-[hr][/hr]
-
-[h2]Bug Reports[/h2]
-
+[b]Bug reports:[/b]
 [code]
 TooltipLib Version:
 Game Version:
-Mode: [SP/MP/Server]
+Mode: [SP / MP Host / Dedicated Server]
 What happened:
-Your mod (if applicable):
 Other tooltip mods installed:
 [/code]
-
-Include versions. I know you think the bug is obvious. It is not obvious. It is never obvious. The last "obvious" bug I got took four hours to reproduce because the reporter didn't mention they were running 47 mods and one of them was hooking [code]ISToolTipInv.render[/code] with a function that returned nil on Wednesdays.
-
-Include versions.
-
-[hr][/hr]
-
-[i]Eight mods. Eight hooks. Eight metatable swaps. One tooltip. Zero of them talked to each other. I've been watching this for long enough. Stop fighting over the hook. Register a provider.[/i]
