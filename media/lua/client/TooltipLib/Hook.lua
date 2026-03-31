@@ -5,13 +5,13 @@
 -- ISToolTipItemSlot). All registered providers are called through managed
 -- hooks, eliminating conflicts between mods.
 --
--- The hooks use a single-layout approach:
---   1. Create one layout for ALL tooltip content (vanilla + providers)
---   2. Call DoTooltipEmbedded with our layout as override — Java adds vanilla
+-- The hooks use a split-layout approach:
+--   1. Create a vanilla layout and call DoTooltipEmbedded — Java adds vanilla
 --      items and draws the item name, but does NOT render the layout
---   3. Provider callbacks add items to the SAME layout
---   4. We render the single combined layout — column widths (labels, values,
---      progress bars) are computed together, so everything aligns perfectly
+--   2. Create a provider layout, chained via Layout.next
+--   3. Provider callbacks add items to the provider layout
+--   4. We render the chain — each section computes column widths independently,
+--      preventing vanilla progress bars from inflating provider row widths
 --
 -- Five phases per DoTooltip call:
 --   PHASE 1   - preTooltip:  Modify item state before vanilla renders
@@ -111,7 +111,7 @@ local function InstallHook()
         end
 
         -- ================================================================
-        -- PHASE 2: Single layout — vanilla + provider items together
+        -- PHASE 2: Split layout — vanilla + provider in chained sections
         -- ================================================================
         local padLeft = tooltip.padLeft or 5
         local padRight = tooltip.padRight or 5
@@ -136,15 +136,24 @@ local function InstallHook()
             -- beginLayout so we can preserve it if ours is narrower
             local foreignWidth = deferStartY and tooltip:getWidth() or 0
 
-            local layout = tooltip:beginLayout()
-
-            -- Add vanilla tooltip items to our layout (skip in defer mode —
-            -- the foreign framework already rendered vanilla content)
-            if not deferStartY then
-                tooltipItem:DoTooltipEmbedded(tooltip, layout, 0)
+            -- Split layout: vanilla content and provider content get
+            -- independent column width computation via the Layout chain
+            -- mechanism (Layout.next). This prevents progress bar columns
+            -- from inflating provider row widths and vice versa — fixing
+            -- excessive tooltip width when vanilla progress bars (Sharpness,
+            -- Condition) coexist with wide provider values.
+            local vanillaLayout, providerLayout
+            if deferStartY then
+                -- Deferred mode: no vanilla content, single layout
+                providerLayout = tooltip:beginLayout()
+            else
+                vanillaLayout = tooltip:beginLayout()
+                tooltipItem:DoTooltipEmbedded(tooltip, vanillaLayout, 0)
+                providerLayout = tooltip:beginLayout()
+                vanillaLayout.next = providerLayout
+                providerLayout.nextPadY = 4
             end
 
-            -- Provider callbacks add items to the SAME layout
             local callbackCache = TooltipLib._callbackCache
             local currentItemId = tooltipItem:getID()
 
@@ -153,7 +162,7 @@ local function InstallHook()
 
             for i = 1, #activeProviders do
                 local p = activeProviders[i]
-                contexts[i].layout = layout
+                contexts[i].layout = providerLayout
                 contexts[i].helpers = TooltipLib.Helpers
 
                 -- Auto-separator: set flag for deferred insertion
@@ -252,10 +261,12 @@ local function InstallHook()
                 end
             end
 
-            -- Render the single combined layout. Column widths (label,
-            -- value, progress bar) are computed across ALL items together.
-            endY = layout:render(padLeft, startY, tooltip)
-            tooltip:endLayout(layout)
+            -- Render the layout chain. Each section computes its own
+            -- column widths — vanilla progress bars don't inflate
+            -- provider rows and vice versa.
+            local renderLayout = vanillaLayout or providerLayout
+            endY = renderLayout:render(padLeft, startY, tooltip)
+            tooltip:endLayout(renderLayout)
 
             -- Compute effective minimum width from provider requests
             local effectiveMinWidth = 150

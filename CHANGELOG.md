@@ -2,6 +2,11 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.1.1] — 2026-03-31
+
+### Fixed
+- **Tooltip width bloat**: Split vanilla and provider content into chained Layout sections with independent column width computation. Prevents vanilla progress bars (Sharpness, Condition) from inflating provider row widths and vice versa — fixes excessively wide tooltips on items with mixed content types (reported with Clean Hotbar)
+
 ## [1.1.0] — 2026-03-18
 
 ### Added

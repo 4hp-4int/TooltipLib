@@ -3,5 +3,5 @@ id=TooltipLib
 poster=poster.png
 author=Dark Sauce
 description=Shared tooltip framework for Build 42. Multiple mods add content to item, crafting, world object, skill, vehicle, and recipe tooltips — zero conflicts, automatic alignment, error isolation. Compatible with Inventory Tetris, Equipment UI, and other tooltip mods.
-modversion=1.1.0
+modversion=1.1.1
 versionmin=42.13.1

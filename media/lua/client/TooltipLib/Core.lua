@@ -63,7 +63,7 @@
 --   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
 
-local CURRENT_VERSION = "1.1.0"
+local CURRENT_VERSION = "1.1.1"
 local CURRENT_VERSION_NUM = 2
 
 -- Version guard: if a newer version is already loaded, do not replace it
