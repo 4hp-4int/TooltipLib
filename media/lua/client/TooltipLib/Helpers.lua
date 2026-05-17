@@ -31,6 +31,73 @@ require "TooltipLib/Core"
 require "TooltipLib/Filters"
 
 -- ============================================================================
+-- Text wrapping utility (CJK-aware)
+-- ============================================================================
+-- Standard word-wrap splits on whitespace, but CJK text has no spaces.
+-- This utility breaks long tokens at character boundaries when they exceed
+-- the wrap width, handling multi-byte UTF-8 characters correctly.
+-- ============================================================================
+
+--- Wrap text to fit within a pixel width, handling CJK characters.
+--- @param text string The text to wrap
+--- @param wrapAt number Maximum pixel width per line
+--- @param font userdata UIFont (default UIFont.Small)
+--- @return table Array of wrapped line strings
+local function wrapText(text, wrapAt, font)
+    local tm = getTextManager()
+    font = font or UIFont.Small
+    local lines = {}
+    local current = ""
+
+    -- Break a single token at UTF-8 character boundaries
+    local function breakLongToken(token, startLine)
+        local line = startLine
+        local i = 1
+        local len = #token
+        while i <= len do
+            local b = string.byte(token, i)
+            local charLen = 1
+            if b >= 0xC0 and b < 0xE0 then charLen = 2
+            elseif b >= 0xE0 and b < 0xF0 then charLen = 3
+            elseif b >= 0xF0 then charLen = 4 end
+            local char = token:sub(i, i + charLen - 1)
+            local test = line .. char
+            if tm:MeasureStringX(font, test) > wrapAt and line ~= "" then
+                lines[#lines + 1] = line
+                line = char
+            else
+                line = test
+            end
+            i = i + charLen
+        end
+        return line
+    end
+
+    for word in text:gmatch("%S+") do
+        local test = current == "" and word or (current .. " " .. word)
+        if tm:MeasureStringX(font, test) > wrapAt then
+            if current ~= "" then
+                if tm:MeasureStringX(font, word) > wrapAt then
+                    lines[#lines + 1] = current
+                    current = breakLongToken(word, "")
+                else
+                    lines[#lines + 1] = current
+                    current = word
+                end
+            else
+                current = breakLongToken(word, "")
+            end
+        else
+            current = test
+        end
+    end
+    if current ~= "" then
+        lines[#lines + 1] = current
+    end
+    return lines
+end
+
+-- ============================================================================
 -- Color palette (frozen — read-only after creation)
 -- ============================================================================
 
@@ -114,7 +181,8 @@ end
 ---@return string key, string value, TooltipLibColor? keyColor, TooltipLibColor? valueColor
 local function resolveKeyValueArgs(keyOrOpts, value, keyColor, valColor)
     if type(keyOrOpts) == "table" then
-        return keyOrOpts.key, keyOrOpts.value, keyOrOpts.keyColor, keyOrOpts.valueColor
+        return keyOrOpts.key, keyOrOpts.value, keyOrOpts.keyColor,
+            keyOrOpts.valueColor
     end
     return keyOrOpts, value, keyColor, valColor
 end
@@ -195,6 +263,29 @@ local function maybeInsertSeparator(self)
     end
 end
 
+--- Record item dimensions on the shared layoutStats accumulator (if any).
+--- Hook.lua attaches a stats table to ctx before provider callbacks; this
+--- updates it so a pre-render alignment pass in Hook.lua can compute the
+--- correct setMinValueWidth and align values to the tooltip's right edge.
+---@param self table The context (with optional _layoutStats)
+---@param label string? Label text (or nil)
+---@param value string? Value text (or nil)
+---@param hasValue boolean Whether this row has a value column
+local function recordItem(self, label, value, hasValue)
+    local stats = self._layoutStats
+    if not stats then return end
+    local tm = stats.tm
+    local font = stats.font
+    local lw = (label and label ~= "") and tm:MeasureStringX(font, label) or 0
+    local vw = (value and value ~= "") and tm:MeasureStringX(font, value) or 0
+    if hasValue then
+        if lw > stats.maxLabelWithValue then stats.maxLabelWithValue = lw end
+        if vw > stats.maxValueCol then stats.maxValueCol = vw end
+    else
+        if lw > stats.maxLabelOnly then stats.maxLabelOnly = lw end
+    end
+end
+
 --- Add a colored label line.
 ---@param text string
 ---@param color TooltipLibColor? {r,g,b,a} or nil for white
@@ -205,6 +296,7 @@ function ContextMT:addLabel(text, color)
     local r, g, b, a = resolveColor(color, 1, 1, 1, 1)
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
+    recordItem(self, text, nil, false)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -213,6 +305,7 @@ end
 --- Supports two calling conventions:
 ---   ctx:addKeyValue("Key:", "Value", keyColor, valColor)
 ---   ctx:addKeyValue({ key = "Key:", value = "Value", keyColor = ..., valueColor = ... })
+--- The value is flush to the layout's right edge (vanilla setValue behavior).
 ---@param keyOrOpts string|table
 ---@param value string?
 ---@param keyColor TooltipLibColor?
@@ -227,6 +320,7 @@ function ContextMT:addKeyValue(keyOrOpts, value, keyColor, valColor)
     local item = self.layout:addItem()
     item:setLabel(key, kr, kg, kb, ka)
     item:setValue(val, vr, vg, vb, va)
+    recordItem(self, key, val, true)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -255,6 +349,7 @@ function ContextMT:addProgress(label, fraction, labelColor, barColor)
     item:setValueRight(0, true)
     item:setValue(string.rep(" ", 12), 0, 0, 0, 0)
     item:setProgress(fraction or 0, br, bg, bb, ba)
+    recordItem(self, label, "            ", true)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -271,7 +366,10 @@ function ContextMT:addInteger(label, value, highGood, labelColor)
     local r, g, b, a = resolveColor(labelColor, 1, 1, 1, 1)
     local item = self.layout:addItem()
     item:setLabel(label, r, g, b, a)
-    item:setValueRight(value, highGood)
+    local hg = (highGood == nil) and true or highGood
+    item:setValueRight(value, hg)
+    local valStr = (value > 0 and "+" or "") .. tostring(value)
+    recordItem(self, label, valStr, true)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -303,6 +401,7 @@ function ContextMT:addHeader(text, color, noSpacer)
     local r, g, b, a = resolveColor(color, C.HEADER[1], C.HEADER[2], C.HEADER[3], C.HEADER[4])
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
+    recordItem(self, text, nil, false)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -322,15 +421,27 @@ function ContextMT:addDivider(color)
 end
 
 --- Add multi-line text with automatic word wrapping at tooltip width.
+--- Wrap width is capped at TooltipLib.maxTooltipWidth (default 500 logical px)
+--- to prevent excessively wide tooltips on long lore/description text — also
+--- helps with non-ASCII fonts (Chinese, Russian) that render wider per glyph.
+--- Set TooltipLib.maxTooltipWidth = nil to disable the cap.
 ---@param text string
 ---@param color TooltipLibColor?
----@param maxWidth number? Override wrap width in pixels
+---@param maxWidth number? Override wrap width in pixels (overrides global cap too)
 ---@return ObjectTooltip_LayoutItem? lastItem
 function ContextMT:addText(text, color, maxWidth)
     requireLayout(self, "addText")
     if not text or text == "" then return nil end
     maybeInsertSeparator(self)
     local r, g, b, a = resolveColor(color, 1, 1, 1, 1)
+    -- Match the actual tooltip font so wrap measurements line up with render
+    local ttFont = UIFont.Small
+    pcall(function()
+        local opt = Core.getInstance():getOptionTooltipFont()
+        if opt == "Large" then ttFont = UIFont.Large
+        elseif opt == "Medium" then ttFont = UIFont.Medium
+        end
+    end)
     local wrapAt = maxWidth or 250
     if not maxWidth then
         pcall(function()
@@ -341,27 +452,23 @@ function ContextMT:addText(text, color, maxWidth)
                 wrapAt = tw - pl - pr - 10
             end
         end)
-    end
-    local tm = getTextManager()
-    local font = UIFont.Small
-    local lines = {}
-    local current = ""
-    for word in text:gmatch("%S+") do
-        local test = current == "" and word or (current .. " " .. word)
-        if tm:MeasureStringX(font, test) > wrapAt and current ~= "" then
-            lines[#lines + 1] = current
-            current = word
-        else
-            current = test
+        -- Scale the cap by the active font's glyph width relative to Small
+        -- so "500" stays a comfortable reading length at any size/language.
+        local cap = TooltipLib.maxTooltipWidth
+        if cap then
+            local tm = getTextManager()
+            local smallW = tm:MeasureStringX(UIFont.Small, "M") or 1
+            local activeW = tm:MeasureStringX(ttFont, "M") or smallW
+            local scaledCap = cap * (activeW / smallW)
+            if wrapAt > scaledCap then wrapAt = scaledCap end
         end
     end
-    if current ~= "" then
-        lines[#lines + 1] = current
-    end
+    local lines = wrapText(text, wrapAt, ttFont)
     local lastItem
     for i = 1, #lines do
         local item = self.layout:addItem()
         item:setLabel(lines[i], r, g, b, a)
+        recordItem(self, lines[i], nil, false)
         lastItem = item
     end
     self._itemCount = (self._itemCount or 0) + #lines
@@ -386,6 +493,7 @@ function ContextMT:addFloat(label, value, decimals, highGood, labelColor)
     local item = self.layout:addItem()
     item:setLabel(label, lr, lg, lb, la)
     item:setValue(fmt, vr, vg, vb, va)
+    recordItem(self, label, fmt, true)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -409,6 +517,7 @@ function ContextMT:addPercentage(label, fraction, decimals, highGood, labelColor
     local item = self.layout:addItem()
     item:setLabel(label, lr, lg, lb, la)
     item:setValue(fmt, vr, vg, vb, va)
+    recordItem(self, label, fmt, true)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -932,20 +1041,9 @@ function RecipeContentPanel:prerender()
             y = y + fontH
 
         elseif e.type == "text" then
-            -- Word-wrap at panel width
-            local wrapAt = panelW - padX * 2 - 5
-            local lines = {}
-            local current = ""
-            for word in e.text:gmatch("%S+") do
-                local test = current == "" and word or (current .. " " .. word)
-                if tm:MeasureStringX(font, test) > wrapAt and current ~= "" then
-                    lines[#lines + 1] = current
-                    current = word
-                else
-                    current = test
-                end
-            end
-            if current ~= "" then lines[#lines + 1] = current end
+            -- Word-wrap at panel width (CJK-aware)
+            local wrapAtW = panelW - padX * 2 - 5
+            local lines = wrapText(e.text, wrapAtW, font)
             for li = 1, #lines do
                 self:drawText(lines[li], padX, y, e.r, e.g, e.b, e.a, font)
                 y = y + fontH
@@ -1151,23 +1249,11 @@ function RecipeContextMT:addText(text, color, maxWidth)
     -- Estimate line count for height (will be corrected in prerender)
     local lineCount = 1
     pcall(function()
-        local tm = getTextManager()
         local accentW = self._panel.accentColor and 3 or 0
         local padX = 5 + accentW
         local panelW = self._panel:getWidth()
-        local wrapAt = maxWidth or (panelW > 0 and (panelW - padX * 2 - 5) or 200)
-        local current = ""
-        lineCount = 0
-        for word in text:gmatch("%S+") do
-            local test = current == "" and word or (current .. " " .. word)
-            if tm:MeasureStringX(UIFont.Small, test) > wrapAt and current ~= "" then
-                lineCount = lineCount + 1
-                current = word
-            else
-                current = test
-            end
-        end
-        if current ~= "" then lineCount = lineCount + 1 end
+        local wrapAtW = maxWidth or (panelW > 0 and (panelW - padX * 2 - 5) or 200)
+        lineCount = #wrapText(text, wrapAtW, UIFont.Small)
     end)
     local tm = getTextManager()
     local fontH = tm:getFontHeight(UIFont.Small) + 2
@@ -1642,7 +1728,8 @@ end
 function Helpers.addInteger(layout, label, value, highGood, labelR, labelG, labelB, labelA)
     local item = layout:addItem()
     item:setLabel(label, labelR or 1, labelG or 1, labelB or 1, labelA or 1)
-    item:setValueRight(value, highGood)
+    local hg = (highGood == nil) and true or highGood
+    item:setValueRight(value, hg)
     return item
 end
 
@@ -1664,6 +1751,17 @@ function Helpers.addDivider(layout, r, g, b, a)
     item:setProgress(1.0, r or 0.35, g or 0.35, b or 0.35, a or 0.6)
     return item
 end
+
+--- Public word-wrap helper. Splits text into lines that fit within wrapAt
+--- pixels at the given font, breaking on whitespace (UTF-8 char boundaries
+--- as fallback for tokens longer than wrapAt). Use when you need to render
+--- pre-wrapped multi-line content via setLabel manually instead of going
+--- through ctx:addText.
+---@param text string
+---@param wrapAt number Maximum pixel width per line
+---@param font userdata? UIFont (default UIFont.Small)
+---@return table Array of wrapped line strings
+Helpers.wrapText = wrapText
 
 TooltipLib.Helpers = Helpers
 

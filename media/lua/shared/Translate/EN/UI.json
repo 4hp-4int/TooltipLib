@@ -1,0 +1,8 @@
+{
+    "UI_TL_ModName": "TooltipLib",
+    "UI_TL_DetailKey": "Detail Modifier Key",
+    "UI_TL_DetailKeyDesc": "Hold to show detailed tooltip information from providers that support it",
+    "UI_TL_ToggleDesc": "Enable or disable the '%1' tooltip provider",
+
+    "Item Report": "Item Report"
+}

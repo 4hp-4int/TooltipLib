@@ -330,6 +330,14 @@ local function InstallWorldObjectHook()
         local sqOk, square = pcall(picked.getSquare, picked)
         if not sqOk then square = nil end
 
+        -- Invalidated object (picked up / removed between frames): its Java ref is
+        -- still alive but `square` is null, so any getX/getY/getZ call will NPE.
+        -- Bail out before filters touch it.
+        if not square then
+            tooltipPanel:setVisible(false)
+            return
+        end
+
         local providers = TooltipLib._getProvidersForTarget("object")
         if #providers == 0 then
             tooltipPanel:setVisible(false)

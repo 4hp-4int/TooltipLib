@@ -25,8 +25,49 @@ require "TooltipLib/Core"
 require "TooltipLib/Filters"
 require "TooltipLib/Helpers"
 require "ISUI/ISToolTipInv"
+
 pcall(function() require "TooltipLib/Options" end)
 pcall(function() require "Entity/ISUI/Components/Crafting/ISToolTipItemSlot" end)
+
+-- B42.16 vanilla bug: getText("Item Report") has no prefix so it always fails.
+-- Pre-seed the Translator's "missing" set via unattributed loadstring closure.
+pcall(function()
+    local fn = loadstring('getText("Item Report")')
+    if fn then fn() end
+end)
+
+-- B42.16 regression: LuaClosure$DebugInfo.generateModName() unconditionally
+-- flags mods in PauseBuggedModList whenever their closures appear in any
+-- error call stack — including vanilla Translation ERRORs that mods can't
+-- control. Snapshot pre-game-start flags and clear only those, so real
+-- runtime errors after game start are preserved.
+local _preStartFlags = {}
+
+local function snapshotAndClearBuggedFlags()
+    if not PauseBuggedModList then return end
+
+    -- Snapshot which of our mods were flagged during loading
+    local names = { "TooltipLib - Shared Tooltip Library" }
+    for _, name in ipairs(TooltipLib._buggedFlagsToClear or {}) do
+        names[#names + 1] = name
+    end
+    for _, name in ipairs(names) do
+        if PauseBuggedModList[name] then
+            _preStartFlags[name] = true
+            PauseBuggedModList[name] = nil
+        end
+    end
+end
+
+--- Consumer mods can register their display name to be cleared from
+--- PauseBuggedModList on game start (workaround for B42.16 false flags).
+--- Only clears flags set during loading; real runtime errors are preserved.
+---@param modDisplayName string The mod's display name as shown in mod.info
+function TooltipLib.clearBuggedFlag(modDisplayName)
+    TooltipLib._buggedFlagsToClear = TooltipLib._buggedFlagsToClear or {}
+    table.insert(TooltipLib._buggedFlagsToClear, modDisplayName)
+end
+Events.OnGameStart.Add(snapshotAndClearBuggedFlags)
 
 local function InstallHook()
     -- Boot-time probe: ISToolTipInv must exist with a render function
@@ -63,7 +104,7 @@ local function InstallHook()
     -- @param surfaceName       "item" or "itemSlot"
     -- @param extraFields       table|nil — extra fields for each context
     -- @param fallbackDoTooltip function — original DoTooltip for error fallback
-    local function doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld, surfaceName, extraFields, fallbackDoTooltip, deferStartY)
+    local function doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld, surfaceName, extraFields, fallbackDoTooltip, deferStartY, hasHiddenDetail)
 
         -- Build per-provider context tables from pool.
         -- Each provider gets its own mutable context so preTooltip can
@@ -121,14 +162,15 @@ local function InstallHook()
         local endY = 0
         local width = 0
         local layoutOk, layoutErr = pcall(function()
+            local lineSpacing = 14
+            pcall(function()
+                lineSpacing = tooltip:getLineSpacing() or 14
+            end)
+
             local startY
             if deferStartY then
                 startY = deferStartY
             else
-                local lineSpacing = 14
-                pcall(function()
-                    lineSpacing = tooltip:getLineSpacing() or 14
-                end)
                 startY = padTop + lineSpacing
             end
 
@@ -136,22 +178,18 @@ local function InstallHook()
             -- beginLayout so we can preserve it if ours is narrower
             local foreignWidth = deferStartY and tooltip:getWidth() or 0
 
-            -- Split layout: vanilla content and provider content get
-            -- independent column width computation via the Layout chain
-            -- mechanism (Layout.next). This prevents progress bar columns
-            -- from inflating provider row widths and vice versa — fixing
-            -- excessive tooltip width when vanilla progress bars (Sharpness,
-            -- Condition) coexist with wide provider values.
+            -- Unified layout: vanilla and provider items share one Layout
+            -- so column widths (mid, widthValueRight) are computed across
+            -- all rows. This ensures progress bars from providers align
+            -- with vanilla's bars in both position and size.
             local vanillaLayout, providerLayout
             if deferStartY then
-                -- Deferred mode: no vanilla content, single layout
                 providerLayout = tooltip:beginLayout()
             else
                 vanillaLayout = tooltip:beginLayout()
                 tooltipItem:DoTooltipEmbedded(tooltip, vanillaLayout, 0)
-                providerLayout = tooltip:beginLayout()
-                vanillaLayout.next = providerLayout
-                providerLayout.nextPadY = 4
+                -- Provider items go into the SAME layout as vanilla
+                providerLayout = vanillaLayout
             end
 
             local callbackCache = TooltipLib._callbackCache
@@ -160,10 +198,31 @@ local function InstallHook()
             -- Auto-separator: track whether previous provider added content
             local prevAddedContent = false
 
+            -- Layout stats accumulator: each ctx:add* helper records its
+            -- label/value text widths here, so we can compute the right
+            -- setMinValueWidth before render to align all values to the
+            -- tooltip's right edge regardless of label-only-row width.
+            -- Match ObjectTooltip's actual font (configurable via Core option).
+            local ttFont = UIFont.Small
+            pcall(function()
+                local opt = Core.getInstance():getOptionTooltipFont()
+                if opt == "Large" then ttFont = UIFont.Large
+                elseif opt == "Medium" then ttFont = UIFont.Medium
+                end
+            end)
+            local layoutStats = {
+                tm = getTextManager(),
+                font = ttFont,
+                maxLabelWithValue = 0,
+                maxValueCol = 0,
+                maxLabelOnly = 0,
+            }
+
             for i = 1, #activeProviders do
                 local p = activeProviders[i]
                 contexts[i].layout = providerLayout
                 contexts[i].helpers = TooltipLib.Helpers
+                contexts[i]._layoutStats = layoutStats
 
                 -- Auto-separator: set flag for deferred insertion
                 contexts[i]._needsSeparator = prevAddedContent and p.separator ~= false
@@ -261,10 +320,29 @@ local function InstallHook()
                 end
             end
 
-            -- Render the layout chain. Each section computes its own
-            -- column widths — vanilla progress bars don't inflate
-            -- provider rows and vice versa.
+            -- Pre-render alignment pass: PZ's Layout.render computes
+            -- widthTotal from label-only rows separately from widthValueRight,
+            -- so a wide description row (addText) at the bottom widens the
+            -- tooltip but doesn't push key/value rows' values to the new
+            -- right edge. Use the recorded layoutStats to compute the right
+            -- setMinValueWidth so values right-align with the full width.
             local renderLayout = vanillaLayout or providerLayout
+            pcall(function()
+                local padX = math.max(
+                    layoutStats.tm:MeasureStringX(layoutStats.font, "W"), 8)
+                local valueRowsTotal = layoutStats.maxLabelWithValue + padX +
+                    layoutStats.maxValueCol
+                TooltipLib._debugLog(string.format(
+                    "preAlign: midLabel=%d valCol=%d labelOnly=%d valTotal=%d",
+                    layoutStats.maxLabelWithValue, layoutStats.maxValueCol,
+                    layoutStats.maxLabelOnly, valueRowsTotal))
+                if layoutStats.maxLabelOnly > valueRowsTotal then
+                    local newMinVal = layoutStats.maxLabelOnly -
+                        layoutStats.maxLabelWithValue - padX
+                    TooltipLib._debugLog("preAlign: setMinValueWidth(" .. newMinVal .. ")")
+                    renderLayout:setMinValueWidth(newMinVal)
+                end
+            end)
             endY = renderLayout:render(padLeft, startY, tooltip)
             tooltip:endLayout(renderLayout)
 
@@ -282,6 +360,15 @@ local function InstallHook()
                 width = math.max(width, foreignWidth)
             end
             if width < effectiveMinWidth then width = effectiveMinWidth end
+
+            -- Detail hint: "[Shift] Details" right-aligned when extra
+            -- content is available but the detail key isn't held.
+            if hasHiddenDetail and not detailHeld then
+                tooltip:DrawTextRight(UIFont.Small, "[Shift] Details",
+                    width - padRight, endY - 2,
+                    0.55, 0.55, 0.55, 0.5)
+                endY = endY + lineSpacing
+            end
         end)
 
         if not layoutOk then
@@ -418,10 +505,17 @@ local function InstallHook()
     -- appended below a foreign framework's tooltip. Uses the ISPanel's
     -- backgroundColor/borderColor to match the active theme.
     --
+    -- Seam handling: the foreign framework above may paint its own bg
+    -- overlay at a different alpha than panel.backgroundColor. Drawing
+    -- our extension at full alpha right at foreignH creates a visible
+    -- horizontal seam. We feather the top FEATHER_PX rows of our bg
+    -- from alpha 0 → bg.a so the transition is gradual instead of hard.
+    --
     -- @param panel       ISToolTipInv or ISToolTipItemSlot (ISPanel)
     -- @param foreignH    Height set by the foreign framework
     -- @param totalH      Total height including our provider content
     -- @param totalW      Total width of the tooltip
+    local FEATHER_PX = 5
     local function drawDeferredBackground(panel, foreignH, totalH, totalW)
         if totalH <= foreignH then return end
         local bg = panel.backgroundColor
@@ -430,9 +524,18 @@ local function InstallHook()
         -- Erase old bottom border (replace with background)
         panel:drawRect(1, foreignH - 1, totalW - 2, 1,
             bg.a, bg.r, bg.g, bg.b)
-        -- Background fill for extension area
-        panel:drawRect(0, foreignH, totalW, totalH - foreignH,
-            bg.a, bg.r, bg.g, bg.b)
+        -- Feathered top edge: gradient from transparent to bg.a over
+        -- FEATHER_PX rows, hiding alpha mismatch with foreign bg above.
+        local featherEnd = math.min(foreignH + FEATHER_PX, totalH)
+        for y = foreignH, featherEnd - 1 do
+            local t = (y - foreignH + 1) / FEATHER_PX
+            panel:drawRect(0, y, totalW, 1, bg.a * t, bg.r, bg.g, bg.b)
+        end
+        -- Solid background fill below the feathered region
+        if featherEnd < totalH then
+            panel:drawRect(0, featherEnd, totalW, totalH - featherEnd,
+                bg.a, bg.r, bg.g, bg.b)
+        end
         -- Side borders for extension
         panel:drawRect(0, foreignH, 1, totalH - foreignH,
             bd.a, bd.r, bd.g, bd.b)
@@ -454,6 +557,7 @@ local function InstallHook()
     local inv_cachedActiveProviders = nil  -- nil is valid (means "none active")
     local inv_cachedL1Frame = 0
     local inv_cachedDetailState = false
+    local inv_cachedHasHiddenDetail = false
     -- Deferred mode: cached dimensions from previous frame
     local inv_deferCachedH = 0
     local inv_deferCachedW = 0
@@ -464,8 +568,12 @@ local function InstallHook()
 
         frameCounter = frameCounter + 1
 
-        -- Fast exit: no item or no providers registered
+        -- Fast exit: no item, no providers, or item lacks standard API
         if not item or #providers == 0 then
+            original_render(self)
+            return
+        end
+        if not pcall(item.getID, item) then
             original_render(self)
             return
         end
@@ -504,6 +612,7 @@ local function InstallHook()
         local itemId = item:getID()
         local providerVersion = TooltipLib._providerVersion
         local activeProviders
+        local hasHiddenDetail = false
         local l1Stale = (frameCounter - inv_cachedL1Frame) >= L1_REFRESH_INTERVAL
 
         if itemId == inv_cachedItemId
@@ -511,6 +620,7 @@ local function InstallHook()
             and detailHeld == inv_cachedDetailState
             and not l1Stale then
             activeProviders = inv_cachedActiveProviders
+            hasHiddenDetail = inv_cachedHasHiddenDetail or false
             TooltipLib._debugLog("L1 cache hit (item " .. itemId .. ")")
         else
             -- Cache miss: evaluate enabled() for all providers
@@ -519,12 +629,13 @@ local function InstallHook()
             else
                 TooltipLib._debugLog("L1 cache miss (item " .. itemId .. ")")
             end
-            activeProviders = TooltipLib._evaluateProviders(providers, detailHeld, item)
+            activeProviders, hasHiddenDetail = TooltipLib._evaluateProviders(providers, detailHeld, item)
 
             inv_cachedItemId = itemId
             inv_cachedProviderVersion = providerVersion
             inv_cachedActiveProviders = activeProviders
             inv_cachedDetailState = detailHeld
+            inv_cachedHasHiddenDetail = hasHiddenDetail
             inv_cachedL1Frame = frameCounter
         end
 
@@ -554,7 +665,7 @@ local function InstallHook()
         itemMetatable.DoTooltip = function(tooltipItem, tooltip)
             ourWrapperFired = true
             doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                "item", nil, original_DoTooltip)
+                "item", nil, original_DoTooltip, nil, hasHiddenDetail)
         end
 
         -- Call the next render in the chain (vanilla, SWSP, AMS, etc.).
@@ -598,7 +709,7 @@ local function InstallHook()
 
             -- Render provider content on top of the background
             doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
-                "item", nil, nil, deferStartY)
+                "item", nil, nil, deferStartY, hasHiddenDetail)
 
             -- Cache total dimensions for next frame's background pre-draw
             inv_deferCachedH = tooltip:getHeight()

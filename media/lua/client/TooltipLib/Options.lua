@@ -22,9 +22,9 @@ if not PZAPI or not PZAPI.ModOptions then
     return
 end
 
-local modOptions = PZAPI.ModOptions:create("TooltipLib", "TooltipLib")
-modOptions:addKeyBind("detailKey", "Detail Modifier Key", Keyboard.KEY_LSHIFT,
-    "Hold to show detailed tooltip information from providers that support it")
+local modOptions = PZAPI.ModOptions:create("TooltipLib", "UI_TL_ModName")
+modOptions:addKeyBind("detailKey", "UI_TL_DetailKey", Keyboard.KEY_LSHIFT,
+    "UI_TL_DetailKeyDesc")
 
 --- Return the currently configured detail key code from ModOptions.
 ---@return number keyCode
@@ -86,7 +86,7 @@ local function addProviderTickBox(provider)
             "provider_" .. provider.id,
             provider.description,
             true,
-            "Enable or disable the '" .. provider.id .. "' tooltip provider"
+            provider.description
         )
     end)
     if addOk then

@@ -63,8 +63,8 @@
 --   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
 
-local CURRENT_VERSION = "1.1.1"
-local CURRENT_VERSION_NUM = 2
+local CURRENT_VERSION = "1.3.0"
+local CURRENT_VERSION_NUM = 4
 
 -- Version guard: if a newer version is already loaded, do not replace it
 if TooltipLib and TooltipLib.VERSION_NUM
@@ -91,6 +91,15 @@ TooltipLib.VERSION_NUM = CURRENT_VERSION_NUM
 --- Set to true to enable verbose logging (cache hits/misses, L1 refreshes, maxAge expirations).
 --- Zero overhead when false (early return in _debugLog).
 TooltipLib.debug = false
+
+--- Soft cap on auto-wrap width (logical pixels at Small font) for ctx:addText.
+--- Scaled by the active tooltip font's glyph ratio so the visual line length
+--- stays consistent across Small/Medium/Large. Prevents excessively wide
+--- tooltips on long lore/description text and helps non-ASCII fonts (Chinese,
+--- Russian) which render wider per glyph. Set to nil to disable the cap and
+--- let addText wrap to the full tooltip width. Per-call maxWidth argument on
+--- addText overrides this.
+TooltipLib.maxTooltipWidth = 1000
 
 -- ============================================================================
 -- Priority constants
@@ -297,6 +306,7 @@ end
 ---@field minVersion? string Reject registration if TooltipLib version is too old
 ---@field separator? boolean Auto-spacer between this and previous provider (default true)
 ---@field detailOnly? boolean Only show when detail key is held (default false)
+---@field hasDetailContent? boolean Declares this provider shows extra content in detail mode (triggers "[Shift] Details" hint)
 ---@field minWidth? number Minimum tooltip width in pixels (default 150)
 ---@field replacesVanilla? boolean Draw opaque bg to cover vanilla content (object surface only, default false)
 ---@field mpFields? string[] Java method names to call on server for MP data (object surface)
@@ -487,6 +497,7 @@ function TooltipLib.registerProvider(options)
         maxAge      = maxAge,
         separator   = (options.separator == nil) and true or options.separator,
         detailOnly  = options.detailOnly or false,
+        hasDetailContent = options.hasDetailContent or options.detailOnly or false,
         description     = options.description,
         minWidth        = options.minWidth,
         replacesVanilla = options.replacesVanilla or false,
@@ -797,6 +808,7 @@ end
 ---@return table[]|nil activeProviders or nil if none active
 function TooltipLib._evaluateProviders(providers, detailHeld, arg1, arg2)
     local activeProviders = nil
+    local hasHiddenDetail = false
     for i = 1, #providers do
         local p = providers[i]
         local active = true
@@ -817,6 +829,12 @@ function TooltipLib._evaluateProviders(providers, detailHeld, arg1, arg2)
 
         if active and p.detailOnly and not detailHeld then
             active = false
+            hasHiddenDetail = true
+        end
+
+        -- Track providers that declare detail content even when not detailOnly
+        if active and not detailHeld and p.hasDetailContent then
+            hasHiddenDetail = true
         end
 
         if active then
@@ -824,7 +842,7 @@ function TooltipLib._evaluateProviders(providers, detailHeld, arg1, arg2)
             activeProviders[#activeProviders + 1] = p
         end
     end
-    return activeProviders
+    return activeProviders, hasHiddenDetail
 end
 
 TooltipLib._log("Core loaded (v" .. TooltipLib.VERSION .. ")")

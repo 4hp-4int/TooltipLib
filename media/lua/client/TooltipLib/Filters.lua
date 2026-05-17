@@ -300,12 +300,19 @@ function TooltipLib.Filters.inRange(maxTiles)
             local parent = container:getParent()
             if not parent then return true end
             if parent == player then return true end -- player's own inventory
+            -- Guard against invalidated parent: IsoObject.getX/Y/Z dereferences
+            -- `this.square` and NPEs if the object was removed from the world.
+            local sqOk, sq = pcall(parent.getSquare, parent)
+            if not sqOk or not sq then return false end
             local ok1, x = pcall(parent.getX, parent)
             local ok2, y = pcall(parent.getY, parent)
             local ok3, z = pcall(parent.getZ, parent)
             if not ok1 or not ok2 or not ok3 then return false end
             wx, wy, wz = x, y, z
         else
+            -- Same guard for world-object subjects.
+            local sqOk, sq = pcall(subject.getSquare, subject)
+            if not sqOk or not sq then return false end
             local ok1, x = pcall(subject.getX, subject)
             local ok2, y = pcall(subject.getY, subject)
             local ok3, z = pcall(subject.getZ, subject)
