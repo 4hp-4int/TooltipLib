@@ -2,7 +2,7 @@
 
 All notable changes to TooltipLib are documented here.
 
-## [1.3.0] — 2026-05-09
+## [1.3.0] — 2026-05-18
 
 ### Added
 - **`TooltipLib.maxTooltipWidth` setting**: Soft cap (logical pixels at Small font) on `ctx:addText` auto-wrap width, scaled by the active tooltip font's glyph ratio so the visual line length stays consistent across Small/Medium/Large. Default `1000`. Set to `nil` to disable the cap. Per-call `maxWidth` arg on `addText` overrides this.

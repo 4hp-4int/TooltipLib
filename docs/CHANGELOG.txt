@@ -1,0 +1,50 @@
+TooltipLib - Changelog
+======================
+
+Plain-language change notes. Newest first.
+For the technical changelog see CHANGELOG.md.
+
+
+v1.3.0 (2026-05-18)
+-------------------
+- Tooltips no longer get too wide on items that have long
+  descriptions or lore text.
+- Fixed a crash some mods could trigger when adding a plain
+  number row to a tooltip.
+- Smoother blending when another tooltip mod is also installed
+  (no more hard line where the backgrounds meet).
+- Mod authors can now set a maximum tooltip width and reuse the
+  built-in text-wrapping helper.
+
+
+v1.2.0
+------
+- Mods that show extra info on Shift now display a "[Shift]
+  Details" hint automatically.
+- Server admins can turn off multiplayer tooltip syncing.
+- Fixed progress bars sometimes not lining up with vanilla bars.
+- Fixed a false "[ERRORS]" flag on the mod list and some
+  translation error spam in the logs.
+- Fixed crashes when hovering objects that had just been removed
+  from the world.
+
+
+v1.1.1 (2026-03-31)
+-------------------
+- Fixed tooltips becoming too wide on items with mixed content
+  (reported alongside Clean Hotbar).
+
+
+v1.1.0 (2026-03-18)
+-------------------
+- Added multiplayer support for world object tooltips on
+  dedicated servers.
+- Better column alignment and sizing for world object tooltips.
+- Various stability fixes for broken providers.
+
+
+v1.0.0 (2026-03-14)
+-------------------
+- First release. Shared framework letting multiple mods add
+  tooltip content across all six tooltip types without
+  conflicting with each other.
