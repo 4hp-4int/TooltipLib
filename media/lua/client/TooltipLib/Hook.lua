@@ -93,6 +93,47 @@ local function InstallHook()
     local ctxPoolSize = 0
 
     -- ================================================================
+    -- InventoryContainer icon-preview restorer
+    -- ================================================================
+    -- Vanilla ISToolTipInv.render → item:DoTooltip(tooltip) (1-arg) draws
+    -- an icon strip of contained items at the bottom of backpack/handbag
+    -- tooltips (InventoryContainer.java:155). Our hook routes through
+    -- DoTooltipEmbedded → DoTooltip(tooltip, layout) (2-arg), which for
+    -- InventoryContainer only adds Capacity/Weight Reduction/Max Item Size
+    -- and never draws the preview. Reproduce the icon row so consumer mods
+    -- don't silently strip the preview from container tooltips.
+    local function drawContainerPreview(tooltipItem, tooltip, endY, width)
+        if not instanceof(tooltipItem, "InventoryContainer") then return endY, width end
+        local cont = tooltipItem:getItemContainer()
+        if not cont then return endY, width end
+        local items = cont:getItems()
+        if not items or items:isEmpty() then return endY, width end
+
+        if width < 160 then width = 160 end
+        local padLeft = tooltip.padLeft or 5
+        local padRight = tooltip.padRight or 5
+        local font = tooltip:getFont()
+        local iconSize = math.max(16, getTextManager():getFontHeight(font))
+        local x = padLeft
+        local y = endY + 4
+        local maxX = width - padRight
+        local seen = {}
+
+        for i = items:size() - 1, 0, -1 do
+            local item = items:get(i)
+            local name = item:getName()
+            if not name or not seen[name] then
+                if name then seen[name] = true end
+                tooltip:DrawTextureScaledAspect(item:getTex(), x, y,
+                    iconSize, iconSize, 1.0, 1.0, 1.0, 1.0)
+                x = x + iconSize + 1
+                if x + iconSize > maxX then break end
+            end
+        end
+        return y + iconSize, width
+    end
+
+    -- ================================================================
     -- Layout dispatch: phases 1-4 for Layout-family surfaces
     -- ================================================================
     -- Shared by ISToolTipInv and ISToolTipItemSlot hooks.
@@ -396,6 +437,19 @@ local function InstallHook()
         if layoutOk then
             endY = TooltipLib._processTextureQueue(
                 contexts, activeProviders, tooltip, endY, width, padLeft, padRight)
+        end
+
+        -- ================================================================
+        -- PHASE 2.6: InventoryContainer icon preview
+        -- ================================================================
+        -- Skipped in deferred mode: the foreign tooltip framework already
+        -- rendered (or chose not to render) the vanilla container preview.
+        if layoutOk and not deferStartY then
+            local pOk, pY, pW = pcall(drawContainerPreview, tooltipItem, tooltip, endY, width)
+            if pOk then
+                if type(pY) == "number" then endY = pY end
+                if type(pW) == "number" then width = pW end
+            end
         end
 
         -- ================================================================

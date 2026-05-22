@@ -2,6 +2,11 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.3.1] — 2026-05-22
+
+### Fixed
+- **`InventoryContainer` icon preview stripped when any item provider is registered**: Vanilla draws a row of contained-item icons at the bottom of backpack/handbag tooltips from `InventoryContainer.DoTooltip(tooltipUI)` (1-arg), but the hook routes through `DoTooltipEmbedded` → `DoTooltip(tooltipUI, layout)` (2-arg), which only adds Capacity/Weight Reduction/Max Item Size and never draws icons. Any consumer mod with a single item provider active silently lost the preview on containers. Hook now reproduces the icon row in a new Phase 2.6 (between texture queue and postRender), so accent bars and other postRender overlays cover it correctly.
+
 ## [1.3.0] — 2026-05-18
 
 ### Added
