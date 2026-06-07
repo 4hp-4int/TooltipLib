@@ -47,6 +47,9 @@ function WorldObjectPanel:new(x, y, w, h)
     o._entries = {}
     o._totalHeight = 0
     o.accentColor = nil
+    o.title = nil
+    o.titleColor = nil
+    o._titleHeight = 0
     o.background = false
     return o
 end
@@ -55,8 +58,28 @@ function WorldObjectPanel:clearEntries()
     self._entries = {}
     self._totalHeight = 0
     self.accentColor = nil
+    self.title = nil
+    self.titleColor = nil
+    self._titleHeight = 0
     self._measuredWidth = nil
     self._colX = nil
+end
+
+--- Set an optional title drawn as a bold header at the very top of the panel.
+--- The title is independent of content entries: it does NOT make the panel
+--- count as having content, so a title alone never forces the tooltip visible.
+--- It only renders when at least one entry is present. First call wins.
+---@param text string Display name
+---@param color TooltipLibColor? {r,g,b,a}, defaults to white
+function WorldObjectPanel:setTitle(text, color)
+    if not text or text == "" or self.title then return end
+    self.title = text
+    self.titleColor = color
+    local h = getTextManager():getFontHeight(UIFont.Medium) + 4
+    self._titleHeight = h
+    self._totalHeight = self._totalHeight + h
+    self:setHeight(self._totalHeight + 10)
+    self._measuredWidth = nil
 end
 
 function WorldObjectPanel:addEntry(entry)
@@ -120,6 +143,12 @@ function WorldObjectPanel:measureWidth(minWidth)
         if w > maxW then maxW = w end
     end
 
+    -- Title (drawn at top in Medium font) can be wider than any content row
+    if self.title then
+        local tw = padX + tm:MeasureStringX(UIFont.Medium, self.title) + padRight
+        if tw > maxW then maxW = tw end
+    end
+
     self._measuredWidth = maxW
     self._colX = colX
     return maxW
@@ -146,6 +175,16 @@ function WorldObjectPanel:prerender()
     local accentW = self.accentColor and 3 or 0
     local padX = 5 + accentW
     local y = 5
+
+    -- Title (object name) drawn as a bold header above all content entries
+    if self.title then
+        local tc = self.titleColor
+        local tr, tg, tb, ta = 1, 1, 1, 1
+        if tc then tr, tg, tb, ta = tc[1], tc[2], tc[3], tc[4] or 1 end
+        self:drawText(self.title, padX, y, tr, tg, tb, ta, UIFont.Medium)
+        y = y + (self._titleHeight > 0 and self._titleHeight
+                 or (tm:getFontHeight(UIFont.Medium) + 4))
+    end
 
     -- Shared column alignment: reuse cached colX from measureWidth() when
     -- available, otherwise compute.

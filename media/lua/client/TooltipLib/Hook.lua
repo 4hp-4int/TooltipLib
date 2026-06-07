@@ -402,10 +402,15 @@ local function InstallHook()
             end
             if width < effectiveMinWidth then width = effectiveMinWidth end
 
-            -- Detail hint: "[Shift] Details" right-aligned when extra
-            -- content is available but the detail key isn't held.
+            -- Detail hint: "[<key>] Details" right-aligned when extra
+            -- content is available but the detail key isn't held. Key name
+            -- reflects the configured detail modifier (not hardcoded Shift).
             if hasHiddenDetail and not detailHeld then
-                tooltip:DrawTextRight(UIFont.Small, "[Shift] Details",
+                local detailKeyName = "Shift"
+                pcall(function()
+                    detailKeyName = getKeyName(TooltipLib._getDetailKeyCode()) or "Shift"
+                end)
+                tooltip:DrawTextRight(UIFont.Small, "[" .. detailKeyName .. "] Details",
                     width - padRight, endY - 2,
                     0.55, 0.55, 0.55, 0.5)
                 endY = endY + lineSpacing

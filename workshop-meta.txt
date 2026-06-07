@@ -2,4 +2,4 @@ version=1
 id=3694097672
 title=Tooltiplib - Tooltip Framework for Modders
 tags=Build 42;Framework;Interface
-visibility=friendsOnly
+visibility=public

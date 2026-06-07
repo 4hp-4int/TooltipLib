@@ -86,6 +86,15 @@ end
 ---@param z number
 ---@param objectIndex number
 function TooltipLib._mpRequest(dataSpec, x, y, z, objectIndex)
+    -- Respect the EnableMPSync sandbox toggle on the CLIENT too. The server
+    -- (MPServer OnClientCommand) already refuses to respond when this is off,
+    -- but without this gate the client still fires a readObject command on
+    -- every world-object hover — flooding dedicated-server command logs even
+    -- though the admin disabled sync. Mirror the server's check exactly.
+    if SandboxVars.TooltipLib and SandboxVars.TooltipLib.EnableMPSync == false then
+        return
+    end
+
     local key = cacheKey(x, y, z, objectIndex)
     local now = getTimestampMs()
 

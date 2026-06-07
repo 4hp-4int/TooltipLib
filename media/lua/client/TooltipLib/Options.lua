@@ -23,7 +23,13 @@ if not PZAPI or not PZAPI.ModOptions then
 end
 
 local modOptions = PZAPI.ModOptions:create("TooltipLib", "UI_TL_ModName")
-modOptions:addKeyBind("detailKey", "UI_TL_DetailKey", Keyboard.KEY_LSHIFT,
+-- B42 vanilla bug workaround: MainOptions.keyPressHandler matches a mod keybind
+-- by comparing setKeybindDialog.keybindName (the raw `name` we pass here) against
+-- the row label text, which is getText(name). If name is a translation KEY, those
+-- never match, the captured key is dropped, and rebinding silently no-ops. Passing
+-- the already-resolved string makes both sides equal so rebinds take effect.
+-- (onDefault uses getText() on both sides and works; keyPressHandler/onClear don't.)
+modOptions:addKeyBind("detailKey", getText("UI_TL_DetailKey"), Keyboard.KEY_LSHIFT,
     "UI_TL_DetailKeyDesc")
 
 --- Return the currently configured detail key code from ModOptions.

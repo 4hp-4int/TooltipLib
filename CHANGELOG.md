@@ -2,6 +2,18 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.4.0] — 2026-06-05
+
+### Added
+- **`WorldObjectPanel:setTitle(text, color)`**: Object-surface providers can set a bold header (Medium font) drawn at the very top of the world-object tooltip, above all content rows — typically the hovered object's name. The title is panel-level state (like `accentColor`), reset each frame in `clearEntries()`, and is **not** a content entry: it does not increment the provider's item count, so a title alone never forces the tooltip visible. It only renders when a data provider also adds at least one entry. `measureWidth()` accounts for the title's width; first call per frame wins. (Consumed by SauceTooltips' object-name header.)
+
+## [1.3.2] — 2026-06-05
+
+### Fixed
+- **Detail-modifier keybind couldn't be rebound**: Changing the "Detail Modifier Key" in Mod Options had no effect — it always behaved as LShift. Root cause is a vanilla B42 bug: `MainOptions.keyPressHandler` matches a mod keybind by comparing the raw option name against the row's *translated* label text, so any mod keybind whose name has a translation entry can never be rebound (the captured key is dropped). Since TooltipLib localizes `UI_TL_DetailKey`, it tripped this. Worked around by registering the keybind with the already-resolved display string as its name, so both sides of vanilla's comparison match. (Vanilla's `onDefault` uses `getText()` on both sides and is unaffected — confirming the inconsistency.)
+- **"[Shift] Details" hint ignored the configured key**: The detail-content hint was hardcoded to "Shift". It now shows the actual configured detail key (e.g. "[LAlt] Details") via `getKeyName(_getDetailKeyCode())`.
+- **MP `readObject` not gated client-side by `EnableMPSync`**: Disabling the "Enable MP Tooltip Sync" sandbox option stopped the server from *responding* but not clients from *sending* — so dedicated-server clients kept firing a `readObject` command on every world-object hover, flooding server command logs even with sync disabled. The client send now respects the same sandbox toggle (mirroring the server-side gate), so disabling MP sync silences the traffic entirely.
+
 ## [1.3.1] — 2026-05-22
 
 ### Fixed

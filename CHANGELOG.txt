@@ -1,0 +1,36 @@
+[h1]TooltipLib — Changelog[/h1]
+
+Player-facing changelog in plain language. BBCode-formatted so it can be pasted
+straight into the Steam Workshop "Change Notes" box on update. For the technical
+changelog (root causes, file references), see CHANGELOG.md in the source repo.
+
+[b]v1.4.0[/b]
+[list]
+[*] Added: mods can now place a title/header at the very top of world-object tooltips. SauceTooltips uses this to show the hovered object's name. It has no effect on its own and never makes a tooltip appear by itself — it only shows when a mod also adds tooltip content.
+[/list]
+
+[b]v1.3.2[/b]
+[list]
+[*] Fixed: the "Detail Modifier Key" option can now actually be changed. Before, rebinding it in Mod Options did nothing and it stayed stuck on Shift. (Root cause was a Build 42 bug in the game's own keybind menu — worked around on our side.)
+[*] Fixed: the on-tooltip hint now shows the key you actually bound (e.g. "[LAlt] Details") instead of always saying "[Shift] Details".
+[*] Fixed: on dedicated servers, turning off "Enable MP Tooltip Sync" now fully stops the tooltip data traffic. Previously it stopped the server replying but clients kept pinging it on every world-object hover, spamming the server console log.
+[/list]
+
+[b]v1.3.1[/b]
+[list]
+[*] Fixed: backpacks and bags show their row of contained-item icons at the bottom of the tooltip again when a tooltip mod is active.
+[/list]
+
+[b]v1.3.0[/b]
+[list]
+[*] Added: a width cap so very long tooltip text wraps neatly instead of stretching across the screen.
+[*] Fixed: tooltip values now line up flush against the right edge, even next to long description lines.
+[*] Fixed: a crash on certain item tooltips, plus a visible seam when running alongside other tooltip-replacing UI mods.
+[/list]
+
+[b]v1.2.0[/b]
+[list]
+[*] Added: a "Details" hint plus a hold-key to reveal extra tooltip info from mods that support it.
+[*] Added: a Mod Options toggle to disable multiplayer tooltip syncing.
+[*] Various stability fixes for Build 42.16.
+[/list]
