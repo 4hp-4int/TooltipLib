@@ -2,6 +2,11 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.4.1] — 2026-06-17
+
+### Fixed
+- **Duplicate tooltip box / accent bar in context menus and world-object menus**: Hovering an item whose tooltip is shown from a context menu (right-click options) or a world-object context menu (e.g. an item on the ground) drew the provider content **twice** — two boxes, two theme accent bars. Root cause: vanilla `ISToolTipInv.render`/`ISToolTipItemSlot.render` call `DoTooltip` twice per frame — once with `setMeasureOnly(true)` to size the tooltip, then again (after repositioning the tooltip via `adjustPositionToAvoidOverlap`) to draw it. PZ's `Layout.render` honors `measureOnly` and skips its own drawing, but TooltipLib's direct-draw phases (postRender accent bars, texture rows, the container icon preview, the `[Shift] Details` hint, and the overflow indicator) did not — so they painted during the measure pass too, at the *pre-reposition* location. Regular inventory hovers hid it because both passes land at the same spot (the duplicates overlapped); menus reposition between passes, so the measure-pass copy became visible as a second box. The hook now detects the measure pass via `ObjectTooltip:isMeasureOnly()` and defers all direct drawing to the real pass, while still running measurement and state phases (preTooltip/callback/cleanup) on both. As a side benefit, this removes a 2× overdraw of semi-transparent accent bars on every item tooltip.
+
 ## [1.4.0] — 2026-06-05
 
 ### Added

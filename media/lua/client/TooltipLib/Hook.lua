@@ -147,6 +147,20 @@ local function InstallHook()
     -- @param fallbackDoTooltip function — original DoTooltip for error fallback
     local function doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld, surfaceName, extraFields, fallbackDoTooltip, deferStartY, hasHiddenDetail)
 
+        -- Measure pass detection: ISToolTipInv/ISToolTipItemSlot.render call
+        -- DoTooltip TWICE per render — first with setMeasureOnly(true) to size
+        -- the tooltip, then (after repositioning) with measureOnly off to draw.
+        -- PZ's Layout.render honors measureOnly and skips its own draws, but our
+        -- direct-draw phases (textures, container preview, postRender accent bars,
+        -- detail hint, overflow indicator) do NOT — so without this guard they
+        -- paint during the measure pass too. The measure-pass position differs
+        -- from the final position (context menus and world-object menus reposition
+        -- via adjustPositionToAvoidOverlap between the two calls), producing a
+        -- second, mislocated tooltip box / accent bar. Run measurement + state
+        -- phases in both passes, but defer all pixel drawing to the real pass.
+        local measureOnly = false
+        pcall(function() measureOnly = tooltip:isMeasureOnly() end)
+
         -- Build per-provider context tables from pool.
         -- Each provider gets its own mutable context so preTooltip can
         -- stash state for cleanup (e.g., saved clip size).
@@ -406,13 +420,17 @@ local function InstallHook()
             -- content is available but the detail key isn't held. Key name
             -- reflects the configured detail modifier (not hardcoded Shift).
             if hasHiddenDetail and not detailHeld then
-                local detailKeyName = "Shift"
-                pcall(function()
-                    detailKeyName = getKeyName(TooltipLib._getDetailKeyCode()) or "Shift"
-                end)
-                tooltip:DrawTextRight(UIFont.Small, "[" .. detailKeyName .. "] Details",
-                    width - padRight, endY - 2,
-                    0.55, 0.55, 0.55, 0.5)
+                if not measureOnly then
+                    local detailKeyName = "Shift"
+                    pcall(function()
+                        detailKeyName = getKeyName(TooltipLib._getDetailKeyCode()) or "Shift"
+                    end)
+                    tooltip:DrawTextRight(UIFont.Small, "[" .. detailKeyName .. "] Details",
+                        width - padRight, endY - 2,
+                        0.55, 0.55, 0.55, 0.5)
+                end
+                -- Advance endY in both passes so the measured height reserves
+                -- room for the hint line even though it's only drawn for real.
                 endY = endY + lineSpacing
             end
         end)
@@ -439,7 +457,7 @@ local function InstallHook()
         -- ctx:addTextureRow() calls. Drawn below the layout, before
         -- provider postRender callbacks see the updated endY.
         -- ================================================================
-        if layoutOk then
+        if layoutOk and not measureOnly then
             endY = TooltipLib._processTextureQueue(
                 contexts, activeProviders, tooltip, endY, width, padLeft, padRight)
         end
@@ -449,7 +467,7 @@ local function InstallHook()
         -- ================================================================
         -- Skipped in deferred mode: the foreign tooltip framework already
         -- rendered (or chose not to render) the vanilla container preview.
-        if layoutOk and not deferStartY then
+        if layoutOk and not deferStartY and not measureOnly then
             local pOk, pY, pW = pcall(drawContainerPreview, tooltipItem, tooltip, endY, width)
             if pOk then
                 if type(pY) == "number" then endY = pY end
@@ -474,28 +492,33 @@ local function InstallHook()
             end)
         end
 
-        for i = 1, #activeProviders do
-            local p = activeProviders[i]
-            if p.postRender then
-                contexts[i].endY = endY
-                contexts[i].width = width
-                contexts[i].padLeft = padLeft
-                contexts[i].padRight = padRight
-                contexts[i].padBottom = padBottom
+        -- postRender draws directly to the tooltip (accent bars, etc.), so it
+        -- must only run on the real draw pass — never the measure pass, or the
+        -- drawing is duplicated at the pre-reposition location.
+        if not measureOnly then
+            for i = 1, #activeProviders do
+                local p = activeProviders[i]
+                if p.postRender then
+                    contexts[i].endY = endY
+                    contexts[i].width = width
+                    contexts[i].padLeft = padLeft
+                    contexts[i].padRight = padRight
+                    contexts[i].padBottom = padBottom
 
-                local prOk, prErr = pcall(p.postRender, contexts[i])
-                if not prOk then
-                    TooltipLib._log("Provider '" .. p.id ..
-                        "' postRender error: " .. tostring(prErr))
-                    TooltipLib._recordError(p.id)
-                end
-                -- Read back any size changes the provider made
-                if prOk then
-                    if type(contexts[i].endY) == "number" then
-                        endY = contexts[i].endY
+                    local prOk, prErr = pcall(p.postRender, contexts[i])
+                    if not prOk then
+                        TooltipLib._log("Provider '" .. p.id ..
+                            "' postRender error: " .. tostring(prErr))
+                        TooltipLib._recordError(p.id)
                     end
-                    if type(contexts[i].width) == "number" then
-                        width = contexts[i].width
+                    -- Read back any size changes the provider made
+                    if prOk then
+                        if type(contexts[i].endY) == "number" then
+                            endY = contexts[i].endY
+                        end
+                        if type(contexts[i].width) == "number" then
+                            width = contexts[i].width
+                        end
                     end
                 end
             end
@@ -526,7 +549,7 @@ local function InstallHook()
             end
 
             -- Draw overflow indicator at bottom of capped tooltip
-            if wasCapped then
+            if wasCapped and not measureOnly then
                 pcall(function()
                     local font = UIFont.Small
                     local ellipsis = "..."
