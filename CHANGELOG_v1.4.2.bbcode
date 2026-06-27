@@ -1,0 +1,15 @@
+[h1]TooltipLib v1.4.2[/h1]
+[i]Released: 2026-06-27[/i]
+
+[b]Fixes runaway tooltip growth when another mod fully takes over the inventory tooltip.[/b]
+
+[h1]Bug Fixes[/h1]
+[list]
+[*][b]Tooltips no longer grow taller and taller every frame[/b] when another mod takes over the inventory tooltip and draws its own panel (reported alongside Extensive Health Rework Evolved). TooltipLib now detects when another mod has fully replaced the tooltip render and steps aside, instead of stacking its content on top of its own previous frame. Other tooltip frameworks (StarlitLibrary, AMS) re-draw normally and are unaffected.
+[/list]
+
+[h1]Compatibility[/h1]
+[list]
+[*][b]Save-safe.[/b] No save-data changes.
+[*][b]Addon authors:[/b] no public API changes — consumer mods need no updates.
+[/list]
