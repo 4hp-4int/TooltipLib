@@ -2,6 +2,11 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.4.2] — 2026-06-27
+
+### Fixed
+- **Unbounded vertical tooltip growth under mods that fully replace `ISToolTipInv.render`**: When another mod overrides `ISToolTipInv.render` / `ISToolTipItemSlot.render` and draws its own panel directly without ever rendering through `self.tooltip` (reported on *Extensive Health Rework Evolved*, WS 3726328119), TooltipLib's deferred branch read back the `ObjectTooltip` height it had written the previous frame and stacked provider content on its own prior output every frame — the tooltip grew without bound. The hook now snapshots `self.tooltip`'s reference and height before the render chain; if, after the chain, the `ObjectTooltip` is the **same reference with unchanged height**, the foreign renderer bypassed it entirely, so TooltipLib stands down (returns, appends nothing, zeroes the deferred cache) rather than deferring onto stale geometry. Applied symmetrically to the item and itemSlot hooks. Legit deferred hosts (StarlitLibrary, AMS) re-render `self.tooltip` each frame so its height changes and the guard never triggers — they are unaffected. Trade-off: for items a render-replacing mod fully owns, TooltipLib now suppresses its provider content rather than corrupt the layout.
+
 ## [1.4.1] — 2026-06-17
 
 ### Fixed

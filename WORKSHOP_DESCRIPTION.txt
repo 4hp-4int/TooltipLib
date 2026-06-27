@@ -106,3 +106,5 @@ Mode: [SP / MP Host / Dedicated Server]
 What happened:
 Other tooltip mods installed:
 [/code]
+
+[img]https://pz-mod-images.us-southeast-1.linodeobjects.com/mod-tiles.png[/img]

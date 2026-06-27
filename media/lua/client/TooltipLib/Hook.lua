@@ -750,6 +750,17 @@ local function InstallHook()
                 "item", nil, original_DoTooltip, nil, hasHiddenDetail)
         end
 
+        -- Snapshot the ObjectTooltip's identity + height before the render
+        -- chain. The deferred branch below uses this to tell whether the
+        -- foreign renderer actually rendered THROUGH self.tooltip this frame.
+        -- Mods that REPLACE ISToolTipInv.render and draw their own panel
+        -- directly (e.g. Extensive Health Rework) never touch self.tooltip;
+        -- deferring onto its stale height stacks our content on our own prior
+        -- output every frame = unbounded vertical growth.
+        local preTooltip = self.tooltip
+        local preTooltipH = -1
+        if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
+
         -- Call the next render in the chain (vanilla, SWSP, AMS, etc.).
         -- When it calls item:DoTooltip(), our wrapper above fires.
         -- pcall-wrapped so the metatable is ALWAYS restored, even on error.
@@ -775,6 +786,29 @@ local function InstallHook()
         -- previous frame, then render our content on top. One-frame lag
         -- on first hover per item (imperceptible at 60fps).
         if not ourWrapperFired and renderOk and self.tooltip then
+            -- Stand-down guard (anti-runaway): if the ObjectTooltip was NOT
+            -- touched during the render chain (same reference AND same height),
+            -- the foreign renderer bypassed it entirely and drew its own panel.
+            -- There is no foreign ObjectTooltip content to append below, and
+            -- deferring would read back the height we set last frame → grow
+            -- without bound. Leave the foreign render intact and add nothing.
+            -- Legit deferred hosts (Starlit, AMS) re-render self.tooltip every
+            -- frame, so its height changes from our prior write → not detected.
+            if self.tooltip == preTooltip then
+                local postTooltipH = -1
+                pcall(function() postTooltipH = self.tooltip:getHeight() end)
+                if postTooltipH == preTooltipH then
+                    TooltipLib._logOnce("deferred_standdown",
+                        "Foreign renderer replaced ISToolTipInv.render and drew " ..
+                        "its own panel (bypassed the ObjectTooltip). Standing " ..
+                        "down to prevent unbounded tooltip growth; provider " ..
+                        "content is suppressed for items it fully owns.")
+                    inv_deferCachedH = 0
+                    inv_deferCachedW = 0
+                    return
+                end
+            end
+
             TooltipLib._logOnce("deferred_mode",
                 "DoTooltip wrapper overridden by another mod — " ..
                 "using deferred layout. Provider content may not " ..
@@ -970,6 +1004,13 @@ local function InstallHook()
                     "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip)
             end
 
+            -- Snapshot ObjectTooltip identity + height (see ISToolTipInv hook):
+            -- detect foreign renderers that bypass self.tooltip and would cause
+            -- unbounded growth in the deferred branch below.
+            local preTooltip = self.tooltip
+            local preTooltipH = -1
+            if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
+
             local renderOk, renderErr = pcall(original_slot_render, self)
 
             -- Restore original DoTooltip (must always run)
@@ -982,6 +1023,20 @@ local function InstallHook()
 
             -- Deferred path (same pattern as ISToolTipInv)
             if not ourSlotWrapperFired and renderOk and self.tooltip then
+                -- Stand-down guard (anti-runaway) — see ISToolTipInv hook.
+                if self.tooltip == preTooltip then
+                    local postTooltipH = -1
+                    pcall(function() postTooltipH = self.tooltip:getHeight() end)
+                    if postTooltipH == preTooltipH then
+                        TooltipLib._logOnce("slot_deferred_standdown",
+                            "Foreign renderer bypassed the ObjectTooltip; " ..
+                            "standing down to prevent unbounded tooltip growth.")
+                        slot_deferCachedH = 0
+                        slot_deferCachedW = 0
+                        return
+                    end
+                end
+
                 TooltipLib._logOnce("slot_deferred_mode",
                     "ItemSlot DoTooltip wrapper overridden by another mod — " ..
                     "using deferred layout.")

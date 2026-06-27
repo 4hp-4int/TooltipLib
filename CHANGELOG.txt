@@ -4,6 +4,11 @@ Player-facing changelog in plain language. BBCode-formatted so it can be pasted
 straight into the Steam Workshop "Change Notes" box on update. For the technical
 changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
+[b]v1.4.2[/b]
+[list]
+[*] Fixed: tooltips no longer grow taller and taller every frame when another mod takes over the inventory tooltip and draws its own panel (reported with Extensive Health Rework Evolved). We now detect when another mod has fully replaced the tooltip render and step aside instead of stacking our content on top of itself. Other tooltip frameworks (StarlitLibrary, AMS) are unaffected.
+[/list]
+
 [b]v1.4.1[/b]
 [list]
 [*] Fixed: tooltips no longer draw twice when shown from a right-click menu or when hovering an item on the ground. You'd see two stacked tooltip boxes (each with its own colored accent bar); now there's just one. (The game asks the tooltip to draw itself twice per frame — once to measure it, once for real — and we were drawing the colored bits in both passes. We now skip the measure pass.)
