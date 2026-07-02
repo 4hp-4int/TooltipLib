@@ -643,6 +643,10 @@ local function InstallHook()
     -- Deferred mode: cached dimensions from previous frame
     local inv_deferCachedH = 0
     local inv_deferCachedW = 0
+    -- Foreign owner: a framework replaced DoTooltip (deferred or stand-down)
+    -- last frame — its panel builds on the vanilla box, so the dress must not
+    -- suppress it. Self-corrects the frame our wrapper fires again.
+    local inv_foreignOwner = false
 
     ISToolTipInv.render = function(self)
         local item = self.item
@@ -650,8 +654,12 @@ local function InstallHook()
 
         frameCounter = frameCounter + 1
 
-        -- Fast exit: no item, no providers, or item lacks standard API
-        if not item or #providers == 0 then
+        -- Panel dress: resolved before the fast exits — a dress must engage
+        -- on EVERY tooltip, including items no provider is active for.
+        local dressSpec = item and TooltipLib._resolvePanelDress("item") or nil
+
+        -- Fast exit: no item, nothing to add, or item lacks standard API
+        if not item or (#providers == 0 and not dressSpec) then
             original_render(self)
             return
         end
@@ -721,8 +729,10 @@ local function InstallHook()
             inv_cachedL1Frame = frameCounter
         end
 
-        -- No active providers -> vanilla path
-        if not activeProviders then
+        -- No active providers -> vanilla path, unless a dress is on: the
+        -- dress still needs the DoTooltip wrapper to paint under vanilla's
+        -- own layout draw.
+        if not activeProviders and not dressSpec then
             original_render(self)
             return
         end
@@ -746,8 +756,19 @@ local function InstallHook()
         local ourWrapperFired = false
         itemMetatable.DoTooltip = function(tooltipItem, tooltip)
             ourWrapperFired = true
-            doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                "item", nil, original_DoTooltip, nil, hasHiddenDetail)
+            -- Dress first, real pass only (helper skips the measure pass):
+            -- lands over the suppressed flat box at the post-reposition
+            -- location, under everything the layout render draws.
+            if dressSpec then
+                TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "item")
+            end
+            if activeProviders then
+                doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
+                    "item", nil, original_DoTooltip, nil, hasHiddenDetail)
+            else
+                -- Dress-only frame: no provider content, vanilla renders
+                original_DoTooltip(tooltipItem, tooltip)
+            end
         end
 
         -- Snapshot the ObjectTooltip's identity + height before the render
@@ -761,6 +782,26 @@ local function InstallHook()
         local preTooltipH = -1
         if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
 
+        -- While the dress is on, silence vanilla's flat box for this render:
+        -- the bg fill and square border would peek out behind the dress's
+        -- rounded corners (same reason the window dress zeroes borderColor).
+        -- Alphas are restored right after the chain — the fields are shared
+        -- vanilla state. Skipped while a foreign framework owns the panel:
+        -- its box IS the vanilla one we'd be blanking.
+        local supBgA, supBdA
+        if dressSpec and not inv_foreignOwner then
+            pcall(function()
+                if self.backgroundColor then
+                    supBgA = self.backgroundColor.a
+                    self.backgroundColor.a = 0
+                end
+                if self.borderColor then
+                    supBdA = self.borderColor.a
+                    self.borderColor.a = 0
+                end
+            end)
+        end
+
         -- Call the next render in the chain (vanilla, SWSP, AMS, etc.).
         -- When it calls item:DoTooltip(), our wrapper above fires.
         -- pcall-wrapped so the metatable is ALWAYS restored, even on error.
@@ -768,6 +809,15 @@ local function InstallHook()
 
         -- Restore original DoTooltip on the metatable (must always run)
         itemMetatable.DoTooltip = original_DoTooltip
+
+        -- Restore the vanilla box alphas (must always run; deferred-mode
+        -- drawing below reads these fields)
+        if supBgA ~= nil or supBdA ~= nil then
+            pcall(function()
+                if supBgA ~= nil then self.backgroundColor.a = supBgA end
+                if supBdA ~= nil then self.borderColor.a = supBdA end
+            end)
+        end
 
         if not renderOk then
             TooltipLib._logOnce("render_chain_error",
@@ -786,6 +836,10 @@ local function InstallHook()
         -- previous frame, then render our content on top. One-frame lag
         -- on first hover per item (imperceptible at 60fps).
         if not ourWrapperFired and renderOk and self.tooltip then
+            -- A foreign framework owns this tooltip's panel: never dress it,
+            -- and stop suppressing the vanilla box it builds on (next frame).
+            inv_foreignOwner = true
+
             -- Stand-down guard (anti-runaway): if the ObjectTooltip was NOT
             -- touched during the render chain (same reference AND same height),
             -- the foreign renderer bypassed it entirely and drew its own panel.
@@ -807,6 +861,14 @@ local function InstallHook()
                     inv_deferCachedW = 0
                     return
                 end
+            end
+
+            -- Dress-only frames have no provider content to append below the
+            -- foreign framework's output — nothing to defer.
+            if not activeProviders then
+                inv_deferCachedH = 0
+                inv_deferCachedW = 0
+                return
             end
 
             TooltipLib._logOnce("deferred_mode",
@@ -835,6 +897,9 @@ local function InstallHook()
             self:setHeight(inv_deferCachedH)
             self:setWidth(inv_deferCachedW)
         else
+            -- Our wrapper fired: the panel is ours again (re-arm the dress's
+            -- vanilla-box suppression). Render-chain errors leave the flag.
+            if ourWrapperFired then inv_foreignOwner = false end
             inv_deferCachedH = 0
             inv_deferCachedW = 0
         end
@@ -868,6 +933,9 @@ local function InstallHook()
         -- Deferred mode: cached dimensions from previous frame
         local slot_deferCachedH = 0
         local slot_deferCachedW = 0
+        -- Foreign owner (see ISToolTipInv hook): don't dress / don't suppress
+        -- the vanilla box while a foreign framework owns the panel.
+        local slot_foreignOwner = false
 
         ISToolTipItemSlot.render = function(self)
             local item = self.item
@@ -901,6 +969,10 @@ local function InstallHook()
                 end
                 TooltipLib._log("API probe passed (itemSlot)")
             end
+
+            -- Panel dress (see ISToolTipInv hook: engages with or without
+            -- active providers)
+            local dressSpec = TooltipLib._resolvePanelDress("itemSlot")
 
             -- Merge item + itemSlot providers (memoized on _providerVersion)
             local providerVersion = TooltipLib._providerVersion
@@ -942,7 +1014,7 @@ local function InstallHook()
                 slot_mergedVersion = providerVersion
             end
 
-            if not mergedProviders or #mergedProviders == 0 then
+            if (not mergedProviders or #mergedProviders == 0) and not dressSpec then
                 original_slot_render(self)
                 return
             end
@@ -975,7 +1047,7 @@ local function InstallHook()
                 slot_cachedL1Frame = frameCounter
             end
 
-            if not activeProviders then
+            if not activeProviders and not dressSpec then
                 original_slot_render(self)
                 return
             end
@@ -1000,8 +1072,16 @@ local function InstallHook()
             local ourSlotWrapperFired = false
             itemMetatable.DoTooltip = function(tooltipItem, tooltip)
                 ourSlotWrapperFired = true
-                doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                    "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip)
+                -- Dress first, real pass only (see ISToolTipInv hook)
+                if dressSpec then
+                    TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "itemSlot")
+                end
+                if activeProviders then
+                    doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
+                        "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip)
+                else
+                    original_DoTooltip(tooltipItem, tooltip)
+                end
             end
 
             -- Snapshot ObjectTooltip identity + height (see ISToolTipInv hook):
@@ -1011,10 +1091,34 @@ local function InstallHook()
             local preTooltipH = -1
             if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
 
+            -- Silence vanilla's flat box while the dress is on (see the
+            -- ISToolTipInv hook for the reasoning + foreign-owner exception)
+            local supBgA, supBdA
+            if dressSpec and not slot_foreignOwner then
+                pcall(function()
+                    if self.backgroundColor then
+                        supBgA = self.backgroundColor.a
+                        self.backgroundColor.a = 0
+                    end
+                    if self.borderColor then
+                        supBdA = self.borderColor.a
+                        self.borderColor.a = 0
+                    end
+                end)
+            end
+
             local renderOk, renderErr = pcall(original_slot_render, self)
 
             -- Restore original DoTooltip (must always run)
             itemMetatable.DoTooltip = original_DoTooltip
+
+            -- Restore the vanilla box alphas (must always run)
+            if supBgA ~= nil or supBdA ~= nil then
+                pcall(function()
+                    if supBgA ~= nil then self.backgroundColor.a = supBgA end
+                    if supBdA ~= nil then self.borderColor.a = supBdA end
+                end)
+            end
 
             if not renderOk then
                 TooltipLib._logOnce("slot_render_chain_error",
@@ -1023,6 +1127,8 @@ local function InstallHook()
 
             -- Deferred path (same pattern as ISToolTipInv)
             if not ourSlotWrapperFired and renderOk and self.tooltip then
+                slot_foreignOwner = true
+
                 -- Stand-down guard (anti-runaway) — see ISToolTipInv hook.
                 if self.tooltip == preTooltip then
                     local postTooltipH = -1
@@ -1035,6 +1141,13 @@ local function InstallHook()
                         slot_deferCachedW = 0
                         return
                     end
+                end
+
+                -- Dress-only frames: nothing to defer below foreign content
+                if not activeProviders then
+                    slot_deferCachedH = 0
+                    slot_deferCachedW = 0
+                    return
                 end
 
                 TooltipLib._logOnce("slot_deferred_mode",
@@ -1057,6 +1170,7 @@ local function InstallHook()
                 self:setHeight(slot_deferCachedH)
                 self:setWidth(slot_deferCachedW)
             else
+                if ourSlotWrapperFired then slot_foreignOwner = false end
                 slot_deferCachedH = 0
                 slot_deferCachedW = 0
             end

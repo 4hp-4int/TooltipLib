@@ -48,6 +48,7 @@
 --                     minWidth, replacesVanilla,
 --                     mpFields, mpContainers, mpModData, mpLocked, mpSquareScan
 --   MP:           allowMPMethod
+--   Panel dress:  setPanelDress, clearPanelDress, getPanelDress
 --
 -- INTERNAL API (may change without notice, prefixed with _):
 --   _providers, _providersByTarget, _providerVersion,
@@ -59,12 +60,13 @@
 --   _createRecordingContext, _replayDisplayList,
 --   _createRecordingRichTextContext, _replayRichTextDisplayList,
 --   _getDetailKeyCode, _log, _logOnce, _debugLog, _warn,
+--   _panelDress, _resolvePanelDress, _drawPanelDress,
 --   _mpAllowedMethods, _isMPMethodAllowed,
 --   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
 
-local CURRENT_VERSION = "1.4.2"
-local CURRENT_VERSION_NUM = 9
+local CURRENT_VERSION = "1.5.0"
+local CURRENT_VERSION_NUM = 10
 
 -- Version guard: if a newer version is already loaded, do not replace it
 if TooltipLib and TooltipLib.VERSION_NUM
@@ -726,6 +728,137 @@ end
 --- Use when external state changes that affect which providers should be active.
 function TooltipLib.invalidateActiveProviders()
     TooltipLib._providerVersion = (TooltipLib._providerVersion or 0) + 1
+end
+
+-- ============================================================================
+-- Panel dress (tooltip box skinning)
+-- ============================================================================
+-- ONE consumer mod at a time may register a PANEL DRESS: a draw callback that
+-- paints the tooltip's background card (e.g. a textured nine-patch) in place
+-- of the vanilla flat rect + square border. While the dress is active the
+-- hooks suppress vanilla's backgroundColor/borderColor box on ISToolTipInv /
+-- ISToolTipItemSlot (alphas zeroed around the render chain, restored after)
+-- and skip WorldObjectPanel's flat fill, then call spec.draw at the START of
+-- the real draw pass — over where the flat box was, under all text.
+--
+-- The dress NEVER engages on the measure pass (see the v1.4.1 double-draw
+-- lesson) and NEVER in deferred mode: a foreign tooltip framework that owns
+-- the panel keeps its own box untouched (the v1.4.2 stand-down lesson).
+--
+-- Fail-open: an error from spec.draw or spec.active clears the dress for the
+-- session with one console line; vanilla boxes return on the next frame.
+
+TooltipLib._panelDress = TooltipLib._panelDress or nil
+
+--- Register (or replace) the panel dress. Last caller wins — this is a skin
+--- slot, not a provider list; two mods fighting over it should be resolved by
+--- the user disabling one, and the log line names the current owner.
+---@param spec table {
+---   id       string   (required) owner id, shown in logs
+---   draw     function (required) draw(panel, tooltip, w, h, surface)
+---            surface "item"/"itemSlot": panel is the ISToolTipInv(-ItemSlot)
+---            ISPanel, tooltip is the ObjectTooltip — draw in TOOLTIP-local
+---            coords through the tooltip's Java Draw* methods
+---            (DrawTextureScaledColor / DrawTextureScaled).
+---            surface "object": panel is TooltipLib's WorldObjectPanel (a Lua
+---            ISPanel), tooltip is nil — draw panel-local via
+---            panel:drawTextureScaled / panel:drawRect.
+---            The dress is expected to paint a FULL background: while it is
+---            active the vanilla flat box is suppressed.
+---   active   function|nil polled once per tooltip render; return false to
+---            stand down for that frame (vanilla box untouched) — e.g. when a
+---            texture pack is missing or a user option is off.
+---   surfaces table|nil   e.g. { item = true, object = true }; nil = all of
+---            item / itemSlot / object.
+--- }
+---@return boolean true if the dress was accepted
+function TooltipLib.setPanelDress(spec)
+    if type(spec) ~= "table"
+        or type(spec.id) ~= "string" or spec.id == ""
+        or type(spec.draw) ~= "function" then
+        TooltipLib._warn("setPanelDress: spec must be a table with id (string) " ..
+            "and draw (function) — dress rejected")
+        return false
+    end
+    local prev = TooltipLib._panelDress
+    if prev and prev.id ~= spec.id then
+        TooltipLib._log("Panel dress '" .. prev.id .. "' replaced by '" .. spec.id .. "'")
+    end
+    TooltipLib._panelDress = spec
+    TooltipLib._log("Panel dress set: '" .. spec.id .. "'")
+    return true
+end
+
+--- Clear the panel dress if `id` matches the current owner.
+---@param id string The owner id passed to setPanelDress
+---@return boolean true if a dress was cleared
+function TooltipLib.clearPanelDress(id)
+    local spec = TooltipLib._panelDress
+    if spec and spec.id == id then
+        TooltipLib._panelDress = nil
+        return true
+    end
+    return false
+end
+
+--- Current dress spec (introspection / tests), or nil.
+function TooltipLib.getPanelDress()
+    return TooltipLib._panelDress
+end
+
+--- Resolve the dress for a surface this frame: nil when unset, opted out of
+--- the surface, or standing down via active(). An active() error clears the
+--- dress entirely (fail-open).
+---@param surface string "item" | "itemSlot" | "object"
+---@return table|nil spec
+function TooltipLib._resolvePanelDress(surface)
+    local spec = TooltipLib._panelDress
+    if not spec then return nil end
+    if spec.surfaces and not spec.surfaces[surface] then return nil end
+    if spec.active then
+        local ok, on = pcall(spec.active)
+        if not ok then
+            TooltipLib._logOnce("panel_dress_active_error",
+                "Panel dress '" .. tostring(spec.id) .. "' active() error — " ..
+                "dress cleared, vanilla box restored: " .. tostring(on))
+            TooltipLib._panelDress = nil
+            return nil
+        end
+        if not on then return nil end
+    end
+    return spec
+end
+
+--- Invoke the dress draw. Skips the measure pass (when a tooltip is given)
+--- and reads w/h from the tooltip when not passed. Returns true only if the
+--- dress actually painted — callers keep their flat box when it didn't.
+--- A draw error clears the dress (fail-open, one console line).
+---@return boolean drew
+function TooltipLib._drawPanelDress(spec, panel, tooltip, w, h, surface)
+    if not spec then return false end
+    if tooltip then
+        local measureOnly = false
+        pcall(function() measureOnly = tooltip:isMeasureOnly() end)
+        if measureOnly then return false end
+        if not w then
+            pcall(function()
+                w = tooltip:getWidth()
+                h = tooltip:getHeight()
+            end)
+        end
+    end
+    if type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then
+        return false
+    end
+    local ok, err = pcall(spec.draw, panel, tooltip, w, h, surface)
+    if not ok then
+        TooltipLib._logOnce("panel_dress_error",
+            "Panel dress '" .. tostring(spec.id) .. "' draw error — " ..
+            "dress cleared, vanilla box restored: " .. tostring(err))
+        TooltipLib._panelDress = nil
+        return false
+    end
+    return true
 end
 
 -- ============================================================================

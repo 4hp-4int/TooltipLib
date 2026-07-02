@@ -2,6 +2,11 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.5.0] — 2026-07-02
+
+### Added
+- **Panel dress API** (`TooltipLib.setPanelDress` / `clearPanelDress` / `getPanelDress`): one consumer mod at a time can *skin the tooltip's background card* — a `draw(panel, tooltip, w, h, surface)` callback paints a textured background (e.g. a nine-patch) in place of the vanilla flat rect + square border on the `item` (ISToolTipInv), `itemSlot` (ISToolTipItemSlot), and `object` (WorldObjectPanel) surfaces. While the dress is active the hooks zero the panel's `backgroundColor`/`borderColor` alphas around the render chain (restored immediately after — the fields are shared vanilla state) and invoke the dress at the start of the **real** draw pass, so it lands over where the flat box was, under all vanilla and provider content, at the post-reposition location (the v1.4.1 measure-pass rules apply: the dress never draws on the measure pass). The dress engages on **every** tooltip, including items no provider is active for — a dress-only render installs a minimal `DoTooltip` wrapper around vanilla's own draw. Spec fields: `id` (owner, required), `draw` (required), `active()` (per-frame stand-down, e.g. texture pack missing or user option off), `surfaces` (opt-in subset). Safety: **deferred/foreign mode is never dressed** — a framework that owns the panel (v1.4.2 stand-down cases included) keeps its vanilla box, via a per-surface foreign-owner latch that also stops the alpha suppression from blanking a foreign panel's background (one discovery frame, then self-corrects); an error from `draw` or `active` clears the dress for the session with one console line and vanilla boxes return the next frame. `HookRecipe`'s panel is not covered yet. (Consumed by sauce-invrender's kraft-ledger tooltip card.)
+
 ## [1.4.2] — 2026-06-27
 
 ### Fixed
