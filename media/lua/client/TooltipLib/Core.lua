@@ -49,6 +49,8 @@
 --                     mpFields, mpContainers, mpModData, mpLocked, mpSquareScan
 --   MP:           allowMPMethod
 --   Panel dress:  setPanelDress, clearPanelDress, getPanelDress
+--   Accent:       ctx:setAccentColor (item/itemSlot; the framework draws the
+--                 accent line once, or feeds it to the panel dress)
 --
 -- INTERNAL API (may change without notice, prefixed with _):
 --   _providers, _providersByTarget, _providerVersion,
@@ -755,7 +757,7 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 --- the user disabling one, and the log line names the current owner.
 ---@param spec table {
 ---   id       string   (required) owner id, shown in logs
----   draw     function (required) draw(panel, tooltip, w, h, surface)
+---   draw     function (required) draw(panel, tooltip, w, h, surface, accent)
 ---            surface "item"/"itemSlot": panel is the ISToolTipInv(-ItemSlot)
 ---            ISPanel, tooltip is the ObjectTooltip — draw in TOOLTIP-local
 ---            coords through the tooltip's Java Draw* methods
@@ -765,6 +767,13 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 ---            panel:drawTextureScaled / panel:drawRect.
 ---            The dress is expected to paint a FULL background: while it is
 ---            active the vanilla flat box is suppressed.
+---            `accent` is the tooltip's accent-channel colour ({r,g,b,a} or
+---            nil): what providers declared via ctx:setAccentColor (item/
+---            itemSlot; providers' LAST-frame value — the dress paints
+---            before they run) or WorldObjectPanel.accentColor (object,
+---            same-frame). While a dress is active the framework does NOT
+---            draw its classic accent bar — the dress integrates the colour
+---            (or ignores it).
 ---   active   function|nil polled once per tooltip render; return false to
 ---            stand down for that frame (vanilla box untouched) — e.g. when a
 ---            texture pack is missing or a user option is off.
@@ -834,7 +843,7 @@ end
 --- dress actually painted — callers keep their flat box when it didn't.
 --- A draw error clears the dress (fail-open, one console line).
 ---@return boolean drew
-function TooltipLib._drawPanelDress(spec, panel, tooltip, w, h, surface)
+function TooltipLib._drawPanelDress(spec, panel, tooltip, w, h, surface, accent)
     if not spec then return false end
     if tooltip then
         local measureOnly = false
@@ -850,7 +859,7 @@ function TooltipLib._drawPanelDress(spec, panel, tooltip, w, h, surface)
     if type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then
         return false
     end
-    local ok, err = pcall(spec.draw, panel, tooltip, w, h, surface)
+    local ok, err = pcall(spec.draw, panel, tooltip, w, h, surface, accent)
     if not ok then
         TooltipLib._logOnce("panel_dress_error",
             "Panel dress '" .. tostring(spec.id) .. "' draw error — " ..

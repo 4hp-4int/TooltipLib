@@ -171,6 +171,11 @@ local function InstallHook()
             ctxPool[i] = {}
             ctxPoolSize = i
         end
+        -- Accent channel: providers declare the theme-line colour via
+        -- ctx:setAccentColor (callback or postRender; last write wins). The
+        -- caller draws the classic bar / feeds the panel dress from the
+        -- returned colour.
+        local accentState = { color = nil }
         local contexts = {}
         for i = 1, providerCount do
             local ctx = resetTable(ctxPool[i])
@@ -178,6 +183,7 @@ local function InstallHook()
             ctx.tooltip = tooltip
             ctx.detail = detailHeld
             ctx.surface = surfaceName
+            ctx._accentState = accentState
             setmetatable(ctx, TooltipLib._ContextMT)
             if extraFields then
                 for k, v in pairs(extraFields) do
@@ -578,6 +584,27 @@ local function InstallHook()
                 end
             end
         end
+
+        return accentState.color
+    end
+
+    -- ================================================================
+    -- Accent line: framework-drawn from the accent channel
+    -- ================================================================
+    -- One bar, drawn once by the framework (real pass only) — providers
+    -- declare the colour instead of each painting over the other's bar.
+    -- Skipped while a panel dress is active: the dress integrates the
+    -- accent itself (a straight bar would cut across its corners).
+    local function drawAccentLine(tooltip, color)
+        if not color then return end
+        pcall(function()
+            if tooltip:isMeasureOnly() then return end
+            local h = tooltip:getHeight()
+            if h and h > 2 then
+                tooltip:DrawTextureScaledColor(nil, 1, 1, 2, h - 2,
+                    color[1], color[2], color[3], color[4] or 1)
+            end
+        end)
     end
 
     -- ================================================================
@@ -647,6 +674,10 @@ local function InstallHook()
     -- last frame — its panel builds on the vanilla box, so the dress must not
     -- suppress it. Self-corrects the frame our wrapper fires again.
     local inv_foreignOwner = false
+    -- Accent channel cache: the dress paints before providers run, so it
+    -- reads the accent THEY declared last frame (keyed by item id).
+    local inv_accentId = nil
+    local inv_accentColor = nil
 
     ISToolTipInv.render = function(self)
         local item = self.item
@@ -758,13 +789,31 @@ local function InstallHook()
             ourWrapperFired = true
             -- Dress first, real pass only (helper skips the measure pass):
             -- lands over the suppressed flat box at the post-reposition
-            -- location, under everything the layout render draws.
+            -- location, under everything the layout render draws. The accent
+            -- is the one providers declared LAST frame (the dress paints
+            -- before they run; tooltips fade in over ~15 frames, so the one-
+            -- frame catch-up is invisible).
             if dressSpec then
-                TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "item")
+                local dressAccent = (inv_accentId == itemId) and inv_accentColor or nil
+                TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "item", dressAccent)
             end
             if activeProviders then
-                doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
+                local accent = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
                     "item", nil, original_DoTooltip, nil, hasHiddenDetail)
+                -- cache from the REAL pass only: postRender-declared accents
+                -- don't exist on the measure pass, and each render measures
+                -- first — a measure-pass write would blank the cache right
+                -- before the real-pass dress reads it
+                local measuring = false
+                pcall(function() measuring = tooltip:isMeasureOnly() end)
+                if not measuring then
+                    inv_accentId, inv_accentColor = itemId, accent
+                    -- classic bar only when undressed — a dressed card
+                    -- integrates the accent (rail tint) instead
+                    if not dressSpec then
+                        drawAccentLine(tooltip, accent)
+                    end
+                end
             else
                 -- Dress-only frame: no provider content, vanilla renders
                 original_DoTooltip(tooltipItem, tooltip)
@@ -886,8 +935,9 @@ local function InstallHook()
             drawDeferredBackground(self, foreignH, inv_deferCachedH, bgW)
 
             -- Render provider content on top of the background
-            doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
+            local accent = doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
                 "item", nil, nil, deferStartY, hasHiddenDetail)
+            drawAccentLine(tooltip, accent)
 
             -- Cache total dimensions for next frame's background pre-draw
             inv_deferCachedH = tooltip:getHeight()
@@ -936,6 +986,9 @@ local function InstallHook()
         -- Foreign owner (see ISToolTipInv hook): don't dress / don't suppress
         -- the vanilla box while a foreign framework owns the panel.
         local slot_foreignOwner = false
+        -- Accent channel cache (see ISToolTipInv hook)
+        local slot_accentId = nil
+        local slot_accentColor = nil
 
         ISToolTipItemSlot.render = function(self)
             local item = self.item
@@ -1074,11 +1127,21 @@ local function InstallHook()
                 ourSlotWrapperFired = true
                 -- Dress first, real pass only (see ISToolTipInv hook)
                 if dressSpec then
-                    TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "itemSlot")
+                    local dressAccent = (slot_accentId == itemId) and slot_accentColor or nil
+                    TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "itemSlot", dressAccent)
                 end
                 if activeProviders then
-                    doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
+                    local accent = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
                         "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip)
+                    -- real-pass only (see ISToolTipInv hook)
+                    local measuring = false
+                    pcall(function() measuring = tooltip:isMeasureOnly() end)
+                    if not measuring then
+                        slot_accentId, slot_accentColor = itemId, accent
+                        if not dressSpec then
+                            drawAccentLine(tooltip, accent)
+                        end
+                    end
                 else
                     original_DoTooltip(tooltipItem, tooltip)
                 end
@@ -1162,8 +1225,9 @@ local function InstallHook()
                 local bgW = math.max(foreignW, slot_deferCachedW)
                 drawDeferredBackground(self, foreignH, slot_deferCachedH, bgW)
 
-                doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
+                local accent = doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
                     "itemSlot", { itemSlot = itemSlotRef }, nil, deferStartY)
+                drawAccentLine(tooltip, accent)
 
                 slot_deferCachedH = tooltip:getHeight()
                 slot_deferCachedW = math.max(foreignW, tooltip:getWidth())

@@ -687,6 +687,25 @@ function ContextMT:readLocked()
     return ok and locked == true
 end
 
+--- Declare the tooltip's accent colour (the theme line). This is a DATA
+--- channel, not a draw call: the framework renders the classic 2px accent
+--- bar once per tooltip when no panel dress is active, and hands the colour
+--- to the panel dress (setPanelDress) when one is — so a dressed card can
+--- integrate the accent (e.g. tint its title rail) instead of having a bar
+--- cut across its corners. Callable from callback or postRender; the LAST
+--- write wins, so a higher-priority provider's postRender (e.g. a
+--- progression tier colour) overrides an earlier theme colour — the same
+--- semantics as the old draw-over-the-other-mod's-bar approach, minus the
+--- double draw. Item/itemSlot surfaces; the object surface's equivalent is
+--- WorldObjectPanel.accentColor.
+---@param color table {r, g, b, a?} floats 0..1
+function ContextMT:setAccentColor(color)
+    local st = self._accentState
+    if st and type(color) == "table" then
+        st.color = color
+    end
+end
+
 -- Expose for Hook.lua
 TooltipLib._ContextMT = ContextMT
 
@@ -1519,6 +1538,11 @@ function RecordingContextMT:addTextureRow(textures, iconSize, spacing)
     return self._realCtx:addTextureRow(textures, iconSize, spacing)
 end
 
+function RecordingContextMT:setAccentColor(color)
+    self._displayList[#self._displayList + 1] = { "setAccentColor", color }
+    return self._realCtx:setAccentColor(color)
+end
+
 -- ============================================================================
 -- Layout display list replay
 -- ============================================================================
@@ -1536,6 +1560,7 @@ local replayDispatch = {
     addPercentage = function(ctx, e) ctx:addPercentage(e[2], e[3], e[4], e[5], e[6]) end,
     addTexture    = function(ctx, e) ctx:addTexture(e[2], e[3], e[4]) end,
     addTextureRow = function(ctx, e) ctx:addTextureRow(e[2], e[3], e[4]) end,
+    setAccentColor = function(ctx, e) ctx:setAccentColor(e[2]) end,
 }
 
 --- Replay a recorded display list onto a context.

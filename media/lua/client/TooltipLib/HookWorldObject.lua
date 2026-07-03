@@ -165,20 +165,24 @@ function WorldObjectPanel:prerender()
     -- Background: the panel dress (a consumer mod's textured card) when one
     -- is active, else the flat box. The dress paints a full background; a
     -- dress that stands down or errors falls back to the flat box same-frame.
+    -- The accent channel (self.accentColor, set by provider callbacks) is
+    -- handed to the dress so it can integrate the colour; the classic
+    -- edge-to-edge bar draws only on the flat box (it would cut across a
+    -- dressed card's rounded corners).
     local dress = TooltipLib._resolvePanelDress
         and TooltipLib._resolvePanelDress("object")
     local dressed = false
     if dress then
-        dressed = TooltipLib._drawPanelDress(dress, self, nil, panelW, panelH, "object")
+        dressed = TooltipLib._drawPanelDress(dress, self, nil, panelW, panelH,
+            "object", self.accentColor)
     end
     if not dressed then
         self:drawRect(0, 0, panelW, panelH, 0.92, 0.07, 0.07, 0.07)
         self:drawRectBorder(0, 0, panelW, panelH, 0.8, 0.4, 0.4, 0.4)
-    end
-    -- Accent bar (drawn over the dress — providers set it either way)
-    if self.accentColor then
-        local ac = self.accentColor
-        self:drawRect(0, 0, 2, panelH, ac[4] or 1, ac[1], ac[2], ac[3])
+        if self.accentColor then
+            local ac = self.accentColor
+            self:drawRect(0, 0, 2, panelH, ac[4] or 1, ac[1], ac[2], ac[3])
+        end
     end
 
     local accentW = self.accentColor and 3 or 0
