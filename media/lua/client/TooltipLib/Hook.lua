@@ -136,96 +136,56 @@ local function InstallHook()
     -- ================================================================
     -- Layout row geometry (for the panel dress's ornaments hook)
     -- ================================================================
-    -- Walks the rendered Java Layout AFTER render() (calcSizes has run,
-    -- heights and measured widths are final) and BEFORE endLayout() frees
-    -- the items back to the pool. Every LayoutItem field read here is a
-    -- public Java field (same access pattern as tooltip.padLeft), and the
-    -- value-column math replicates Layout.render()'s exactly — so the
-    -- ornaments a skin draws from this land pixel-true under the rows.
-    --
-    -- The provider region is located by count: sectionState.rows is the
-    -- exact number of items the ctx:add* methods appended, so the first
-    -- provider row is items:size() - rows (everything before it came from
-    -- vanilla's DoTooltipEmbedded).
-    local function buildLayoutGeometry(layout, sectionState, left, startY,
-                                       lineSpacing, layoutStats)
-        local items = layout.items
-        local n = items:size()
-        if n <= 0 then return nil end
+    -- RECONSTRUCTED, never read back: the Java Layout's fields are NOT
+    -- Lua-exposed (layout.items indexes as nil in-game — only the inner
+    -- class's METHODS work; the 2026-07-03 error-spam lesson). Geometry
+    -- comes from what the ctx methods NOTED at declare time
+    -- (sectionState.meta: kind, measured widths, bar fraction/colour) plus
+    -- the rendered layout's end Y:
+    --   * provider rows are the layout's LAST #meta rows, each exactly one
+    --     lineSpacing tall (every ctx-added row is single-line — addText
+    --     pre-splits, and LayoutItem heights are lines*lineSpacing)
+    --   * the value column's RIGHT edge is width - padRight BY
+    --     CONSTRUCTION: the pre-render alignment pass (setMinValueWidth)
+    --     right-aligns values to the tooltip's edge
+    --   * midX comes from the same layoutStats that alignment pass measures
+    -- Vanilla's own rows (DoTooltipEmbedded) are not described — ornaments
+    -- cover the provider region only.
+    local function buildLayoutGeometry(sectionState, left, endYLayout,
+                                       lineSpacing, width, padRight, layoutStats)
+        local meta = sectionState.meta
+        local n = #meta
+        if n == 0 then return nil end
         local padX = math.max(
             layoutStats.tm:MeasureStringX(layoutStats.font, "W"), 8)
-        local minLW = layout.minLabelWidth or 0
-        local minVW = layout.minValueWidth or 0
-        local widthValueRight = minVW
-        local mid = 0
-        for i = 0, n - 1 do
-            local it = items:get(i)
-            if it.hasValue then
-                local lw = it.labelWidth or 0
-                if lw < minLW then lw = minLW end
-                if (lw + padX) > mid then mid = lw + padX end
-                local vwr = it.valueWidthRight or 0
-                if vwr > widthValueRight then widthValueRight = vwr end
-            end
-        end
+        local startProv = endYLayout - n * lineSpacing
         local rows = {}
-        local providerRows = sectionState and sectionState.rows or 0
-        local firstProvider = n - providerRows
-        local y = startY
-        for i = 0, n - 1 do
-            local it = items:get(i)
-            local pf = it.progressFraction or -1
-            local lbl = it.label
-            local blankLbl = (lbl == nil or lbl == " " or lbl == "")
-            local kind
-            if pf >= 0 then
-                -- a labelled progress row is a "bar" (freshness, condition);
-                -- a labelless one is a "rule" (addDivider / section fallback)
-                -- — skins restyle gauges, not dividers
-                kind = blankLbl and "rule" or "bar"
-            elseif it.hasValue and it.value ~= nil then
-                kind = "kv"
-            elseif blankLbl then
-                kind = "blank"
-            else
-                kind = "label"
-            end
-            local h = it.height or lineSpacing
-            local row = {
-                y = y, h = h, kind = kind,
-                labelW = it.labelWidth or 0,
-                valueW = (it.rightJustify and it.valueWidthRight or it.valueWidth) or 0,
-                provider = (i >= firstProvider),
+        for i = 1, n do
+            local m = meta[i]
+            rows[i] = {
+                y = startProv + (i - 1) * lineSpacing,
+                h = lineSpacing, kind = m.kind,
+                labelW = m.labelW or 0, valueW = m.valueW or 0,
+                fraction = m.fraction, barColor = m.barColor,
+                provider = true,
             }
-            if pf >= 0 then
-                -- everything a skin needs to REPAINT the bar exactly:
-                -- vanilla draws it at (midX, y + lineSpacing/2 - 1,
-                -- valueRightX - midX, geom.barH) with this fraction/colour
-                row.fraction = pf
-                row.barColor = { it.r1 or 1, it.g1 or 1, it.b1 or 1, it.a1 or 1 }
-            end
-            rows[#rows + 1] = row
-            y = y + h
         end
         local sections = {}
-        if sectionState then
-            for si = 1, #sectionState.list do
-                local s = sectionState.list[si]
-                local r = rows[firstProvider + s.offset + 1]
-                if r then
-                    sections[#sections + 1] = {
-                        y = r.y, h = r.h, label = s.label,
-                        labelW = r.labelW,
-                        rowIndex = firstProvider + s.offset + 1,
-                    }
-                end
+        for si = 1, #sectionState.list do
+            local s = sectionState.list[si]
+            local r = rows[s.index]
+            if r then
+                sections[#sections + 1] = {
+                    y = r.y, h = r.h, label = s.label,
+                    labelW = r.labelW, rowIndex = s.index,
+                }
             end
         end
         return {
-            left = left, startY = startY, endY = y,
+            left = left, startY = startProv, endY = endYLayout,
             lineSpacing = lineSpacing,
-            midX = left + mid,
-            valueRightX = left + mid + widthValueRight,
+            midX = left + layoutStats.maxLabelWithValue + padX,
+            valueRightX = width - padRight,
             -- vanilla's progress-bar height by tooltip font (LayoutItem.render)
             barH = (layoutStats.fontSize == "Large" and 7)
                 or (layoutStats.fontSize == "Medium" and 6) or 5,
@@ -286,7 +246,7 @@ local function InstallHook()
         -- instead. `labelColor` lets the dress style section labels at
         -- declare time.
         local sectionState = {
-            rows = 0,
+            meta = {},
             list = {},
             dressed = (dressSpec and type(dressSpec.ornaments) == "function")
                 and true or false,
@@ -525,16 +485,7 @@ local function InstallHook()
                 end
             end)
             endY = renderLayout:render(padLeft, startY, tooltip)
-            -- Row geometry for the ornaments hook: walk the layout between
-            -- render() (sizes final) and endLayout() (items freed). pcall'd
-            -- separately — a geometry failure must not take down the layout
-            -- (ornaments just don't draw; the dress itself is unaffected).
-            if sectionState.dressed then
-                pcall(function()
-                    geom = buildLayoutGeometry(renderLayout, sectionState,
-                        padLeft, startY, lineSpacing, layoutStats)
-                end)
-            end
+            local endYLayout = endY   -- before the detail hint advances it
             tooltip:endLayout(renderLayout)
 
             -- Compute effective minimum width from provider requests
@@ -568,6 +519,17 @@ local function InstallHook()
                 -- Advance endY in both passes so the measured height reserves
                 -- room for the hint line even though it's only drawn for real.
                 endY = endY + lineSpacing
+            end
+
+            -- Row geometry for the ornaments hook — reconstructed from the
+            -- declare-time notes (see buildLayoutGeometry above; width is
+            -- final here). Inner pcall: a geometry failure must not take
+            -- down the layout — ornaments just don't draw.
+            if sectionState.dressed then
+                pcall(function()
+                    geom = buildLayoutGeometry(sectionState, padLeft,
+                        endYLayout, lineSpacing, width, padRight, layoutStats)
+                end)
             end
         end)
 

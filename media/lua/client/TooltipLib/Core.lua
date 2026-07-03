@@ -783,15 +783,18 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 ---            item / itemSlot / object.
 ---   ornaments function|nil (item/itemSlot) ornaments(panel, tooltip, geom,
 ---            surface, accent) — called at the END of the real pass with the
----            layout's EXACT row geometry, so the skin can draw row-anchored
----            flourishes (section rules, dot leaders) in its own material.
+---            PROVIDER rows' exact geometry (reconstructed from declare-time
+---            notes — the Java Layout's fields are not Lua-readable — so
+---            vanilla's own rows are not described), letting the skin draw
+---            row-anchored flourishes (section rules, dot leaders, repainted
+---            bars) in its own material.
 ---            geom = {
 ---              left, startY, endY, lineSpacing, width,
 ---              midX          -- x where the value column begins
 ---              valueRightX,  -- right edge of the value column
 ---              barH,         -- vanilla progress-bar height for this font
 ---              rows = { { y, h, kind = "kv"|"label"|"bar"|"rule"|"blank",
----                         labelW, valueW, provider = bool,
+---                         labelW, valueW, provider = true,
 ---                         fraction, barColor  -- bar/rule rows only: enough
 ---                         -- to REPAINT the bar (vanilla rect = midX,
 ---                         -- y + lineSpacing/2 - 1, valueRightX-midX, barH)

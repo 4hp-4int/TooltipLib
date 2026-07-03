@@ -252,14 +252,33 @@ local function requireLayout(self, method)
     end
 end
 
---- Count a physical layout row on the shared section state (if any).
---- _itemCount deliberately skips auto-separators and header spacers, so the
---- section/ornament geometry keeps its own EXACT count of layout items the
---- provider region added — Hook.lua subtracts it from the rendered layout's
---- total to locate the provider rows (and each declared section) by index.
-local function bumpRow(self, n)
+--- Note a physical layout row on the shared section state (if any).
+--- The Java Layout can't be read back at render time — its fields (items,
+--- minLabelWidth, ...) are NOT Lua-exposed; reading layout.items returns
+--- nil in-game (only methods work on the inner class). So the ornament
+--- geometry is built the other way round: every ContextMT method NOTES the
+--- row it adds at declare time — kind + measured label/value widths (+ bar
+--- fraction/colour) — and Hook.lua reconstructs exact positions from the
+--- rendered layout's end Y (the provider rows are the layout's LAST #meta
+--- rows, and every ctx-added row is single-line: addText pre-splits).
+local function noteRow(self, kind, label, value, extra)
     local ss = self._sectionState
-    if ss then ss.rows = ss.rows + (n or 1) end
+    if not ss then return end
+    local m = { kind = kind or "blank" }
+    local stats = self._layoutStats
+    if stats and stats.tm then
+        if label and label ~= "" and label ~= " " then
+            m.labelW = stats.tm:MeasureStringX(stats.font, label)
+        end
+        if value and value ~= "" and value ~= " " then
+            m.valueW = stats.tm:MeasureStringX(stats.font, value)
+        end
+    end
+    if extra then
+        m.fraction = extra.fraction
+        m.barColor = extra.barColor
+    end
+    ss.meta[#ss.meta + 1] = m
 end
 
 --- Insert a deferred auto-separator (spacer) if flagged by the framework.
@@ -270,7 +289,7 @@ local function maybeInsertSeparator(self)
         self._needsSeparator = false
         local sepItem = self.layout:addItem()
         sepItem:setLabel(" ", 1, 1, 1, 1)
-        bumpRow(self)
+        noteRow(self, "blank")
     end
 end
 
@@ -308,7 +327,7 @@ function ContextMT:addLabel(text, color)
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
     recordItem(self, text, nil, false)
-    bumpRow(self)
+    noteRow(self, "label", text)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -333,7 +352,7 @@ function ContextMT:addKeyValue(keyOrOpts, value, keyColor, valColor)
     item:setLabel(key, kr, kg, kb, ka)
     item:setValue(val, vr, vg, vb, va)
     recordItem(self, key, val, true)
-    bumpRow(self)
+    noteRow(self, "kv", key, val)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -363,7 +382,8 @@ function ContextMT:addProgress(label, fraction, labelColor, barColor)
     item:setValue(string.rep(" ", 12), 0, 0, 0, 0)
     item:setProgress(fraction or 0, br, bg, bb, ba)
     recordItem(self, label, "            ", true)
-    bumpRow(self)
+    noteRow(self, "bar", label, nil,
+        { fraction = fraction or 0, barColor = { br, bg, bb, ba } })
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -384,7 +404,7 @@ function ContextMT:addInteger(label, value, highGood, labelColor)
     item:setValueRight(value, hg)
     local valStr = (value > 0 and "+" or "") .. tostring(value)
     recordItem(self, label, valStr, true)
-    bumpRow(self)
+    noteRow(self, "kv", label, valStr)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -396,7 +416,7 @@ function ContextMT:addSpacer()
     maybeInsertSeparator(self)
     local item = self.layout:addItem()
     item:setLabel(" ", 1, 1, 1, 1)
-    bumpRow(self)
+    noteRow(self, "blank")
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -412,14 +432,14 @@ function ContextMT:addHeader(text, color, noSpacer)
     if not noSpacer and (self._itemCount or 0) > 0 then
         local spacerItem = self.layout:addItem()
         spacerItem:setLabel(" ", 1, 1, 1, 1)
-        bumpRow(self)
+        noteRow(self, "blank")
     end
     local C = TooltipLib.Colors
     local r, g, b, a = resolveColor(color, C.HEADER[1], C.HEADER[2], C.HEADER[3], C.HEADER[4])
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
     recordItem(self, text, nil, false)
-    bumpRow(self)
+    noteRow(self, "label", text)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -434,7 +454,7 @@ function ContextMT:addDivider(color)
     local item = self.layout:addItem()
     item:setLabel(" ", 0, 0, 0, 0)
     item:setProgress(1.0, r, g, b, a)
-    bumpRow(self)
+    noteRow(self, "rule", nil, nil, { fraction = 1, barColor = { r, g, b, a } })
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -488,9 +508,9 @@ function ContextMT:addText(text, color, maxWidth)
         local item = self.layout:addItem()
         item:setLabel(lines[i], r, g, b, a)
         recordItem(self, lines[i], nil, false)
+        noteRow(self, "label", lines[i])
         lastItem = item
     end
-    bumpRow(self, #lines)
     self._itemCount = (self._itemCount or 0) + #lines
     return lastItem
 end
@@ -750,7 +770,7 @@ function ContextMT:beginSection(label, color)
     if (self._itemCount or 0) > 0 then
         local spacerItem = self.layout:addItem()
         spacerItem:setLabel(" ", 1, 1, 1, 1)
-        bumpRow(self)
+        noteRow(self, "blank")
     end
     local ss = self._sectionState
     local C = TooltipLib.Colors
@@ -759,20 +779,21 @@ function ContextMT:beginSection(label, color)
         C.HEADER[1], C.HEADER[2], C.HEADER[3], C.HEADER[4])
     local text = string.upper(tostring(label or ""))
     if ss then
-        -- 0-based offset of the label row within the provider region;
-        -- recorded BEFORE the label bumps the count
-        ss.list[#ss.list + 1] = { offset = ss.rows, label = text }
+        -- 1-based index of the label row in the noted provider region
+        -- (the noteRow below appends it there)
+        ss.list[#ss.list + 1] = { index = #ss.meta + 1, label = text }
     end
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
     recordItem(self, text, nil, false)
-    bumpRow(self)
+    noteRow(self, "label", text)
     self._itemCount = (self._itemCount or 0) + 1
     if not (ss and ss.dressed) then
         local rule = self.layout:addItem()
         rule:setLabel(" ", 0, 0, 0, 0)
         rule:setProgress(1.0, 0.35, 0.35, 0.35, 0.6)
-        bumpRow(self)
+        noteRow(self, "rule", nil, nil,
+            { fraction = 1, barColor = { 0.35, 0.35, 0.35, 0.6 } })
     end
     return item
 end
