@@ -788,8 +788,12 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 ---            vanilla's own rows are not described), letting the skin draw
 ---            row-anchored flourishes (section rules, dot leaders, repainted
 ---            bars) in its own material.
+---            Fires on dress-only frames too (no active providers): rows is
+---            empty but the line grid (top/lineSpacing/endY) still describes
+---            the vanilla body, so a skin can rule every card.
 ---            geom = {
 ---              left, startY, endY, lineSpacing, width,
+---              top,          -- first layout row (vanilla's rows included)
 ---              midX          -- x where the value column begins
 ---              valueRightX,  -- right edge of the value column
 ---              barH,         -- vanilla progress-bar height for this font

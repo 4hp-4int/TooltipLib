@@ -151,7 +151,7 @@ local function InstallHook()
     --   * midX comes from the same layoutStats that alignment pass measures
     -- Vanilla's own rows (DoTooltipEmbedded) are not described — ornaments
     -- cover the provider region only.
-    local function buildLayoutGeometry(sectionState, left, endYLayout,
+    local function buildLayoutGeometry(sectionState, left, topY, endYLayout,
                                        lineSpacing, width, padRight, layoutStats)
         local meta = sectionState.meta
         local n = #meta
@@ -183,6 +183,10 @@ local function InstallHook()
         end
         return {
             left = left, startY = startProv, endY = endYLayout,
+            -- top of the WHOLE layout (vanilla's rows included): their
+            -- contents can't be read back, but a skin's row RULING only
+            -- needs the line grid, which starts here
+            top = topY,
             lineSpacing = lineSpacing,
             midX = left + layoutStats.maxLabelWithValue + padX,
             valueRightX = width - padRight,
@@ -527,7 +531,7 @@ local function InstallHook()
             -- down the layout — ornaments just don't draw.
             if sectionState.dressed then
                 pcall(function()
-                    geom = buildLayoutGeometry(sectionState, padLeft,
+                    geom = buildLayoutGeometry(sectionState, padLeft, startY,
                         endYLayout, lineSpacing, width, padRight, layoutStats)
                 end)
             end
@@ -922,6 +926,32 @@ local function InstallHook()
             else
                 -- Dress-only frame: no provider content, vanilla renders
                 original_DoTooltip(tooltipItem, tooltip)
+                -- The skin can still RULE the card body: a rows-less
+                -- geometry (line grid only — top/lineSpacing/extent) is
+                -- enough for feint ledger ruling on pure-vanilla tooltips.
+                if dressSpec and type(dressSpec.ornaments) == "function" then
+                    local measuring = false
+                    pcall(function() measuring = tooltip:isMeasureOnly() end)
+                    if not measuring then
+                        pcall(function()
+                            local ls = tooltip:getLineSpacing() or 14
+                            local w = tooltip:getWidth()
+                            local h = tooltip:getHeight()
+                            local pT = tooltip.padTop or 5
+                            local pB = tooltip.padBottom or 5
+                            local pL = tooltip.padLeft or 5
+                            local pR = tooltip.padRight or 5
+                            local bottom = h - pB
+                            TooltipLib._drawPanelOrnaments(dressSpec, self, tooltip, {
+                                left = pL, top = pT + ls,
+                                startY = bottom, endY = bottom,
+                                lineSpacing = ls, width = w,
+                                midX = 0, valueRightX = w - pR,
+                                rows = {}, sections = {},
+                            }, "item", (inv_accentId == itemId) and inv_accentColor or nil)
+                        end)
+                    end
+                end
             end
         end
 
@@ -1255,6 +1285,28 @@ local function InstallHook()
                     end
                 else
                     original_DoTooltip(tooltipItem, tooltip)
+                    -- rows-less geometry for the skin's ruling (see the
+                    -- ISToolTipInv dress-only branch)
+                    if dressSpec and type(dressSpec.ornaments) == "function" then
+                        local measuring = false
+                        pcall(function() measuring = tooltip:isMeasureOnly() end)
+                        if not measuring then
+                            pcall(function()
+                                local ls = tooltip:getLineSpacing() or 14
+                                local w = tooltip:getWidth()
+                                local h = tooltip:getHeight()
+                                local bottom = h - (tooltip.padBottom or 5)
+                                TooltipLib._drawPanelOrnaments(dressSpec, self, tooltip, {
+                                    left = tooltip.padLeft or 5,
+                                    top = (tooltip.padTop or 5) + ls,
+                                    startY = bottom, endY = bottom,
+                                    lineSpacing = ls, width = w,
+                                    midX = 0, valueRightX = w - (tooltip.padRight or 5),
+                                    rows = {}, sections = {},
+                                }, "itemSlot", (slot_accentId == itemId) and slot_accentColor or nil)
+                            end)
+                        end
+                    end
                 end
             end
 

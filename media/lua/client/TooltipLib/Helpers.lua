@@ -444,7 +444,11 @@ function ContextMT:addHeader(text, color, noSpacer)
     return item
 end
 
---- Add a visual divider line (thin progress bar).
+--- Add a visual divider line. Undressed (or dress without an ornaments
+--- hook): a thin progress-bar rule, the classic look. With an ornaments
+--- hook active the flat Java bar is SUPPRESSED — the row stays (measured
+--- height, noted as kind "rule") and the skin draws its own rule in its
+--- own material from the geometry, so the two never stack.
 ---@param color TooltipLibColor? Defaults to muted gray
 ---@return ObjectTooltip_LayoutItem
 function ContextMT:addDivider(color)
@@ -453,7 +457,10 @@ function ContextMT:addDivider(color)
     local r, g, b, a = resolveColor(color, 0.35, 0.35, 0.35, 0.6)
     local item = self.layout:addItem()
     item:setLabel(" ", 0, 0, 0, 0)
-    item:setProgress(1.0, r, g, b, a)
+    local ss = self._sectionState
+    if not (ss and ss.dressed) then
+        item:setProgress(1.0, r, g, b, a)
+    end
     noteRow(self, "rule", nil, nil, { fraction = 1, barColor = { r, g, b, a } })
     self._itemCount = (self._itemCount or 0) + 1
     return item
