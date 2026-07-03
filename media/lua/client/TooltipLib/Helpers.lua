@@ -10,7 +10,7 @@
 -- All three share the same add* method signatures:
 --   ctx:addLabel, ctx:addKeyValue, ctx:addProgress, ctx:addInteger,
 --   ctx:addFloat, ctx:addPercentage, ctx:addSpacer, ctx:addHeader,
---   ctx:addDivider, ctx:addText
+--   ctx:addDivider, ctx:addText, ctx:beginSection
 --
 -- Layout surfaces additionally support:
 --   ctx:addTexture, ctx:addTextureRow
@@ -252,6 +252,16 @@ local function requireLayout(self, method)
     end
 end
 
+--- Count a physical layout row on the shared section state (if any).
+--- _itemCount deliberately skips auto-separators and header spacers, so the
+--- section/ornament geometry keeps its own EXACT count of layout items the
+--- provider region added — Hook.lua subtracts it from the rendered layout's
+--- total to locate the provider rows (and each declared section) by index.
+local function bumpRow(self, n)
+    local ss = self._sectionState
+    if ss then ss.rows = ss.rows + (n or 1) end
+end
+
 --- Insert a deferred auto-separator (spacer) if flagged by the framework.
 --- Called at the top of every layout-adding method. The _needsSeparator flag
 --- is set by Hook.lua before each provider's callback runs.
@@ -260,6 +270,7 @@ local function maybeInsertSeparator(self)
         self._needsSeparator = false
         local sepItem = self.layout:addItem()
         sepItem:setLabel(" ", 1, 1, 1, 1)
+        bumpRow(self)
     end
 end
 
@@ -297,6 +308,7 @@ function ContextMT:addLabel(text, color)
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
     recordItem(self, text, nil, false)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -321,6 +333,7 @@ function ContextMT:addKeyValue(keyOrOpts, value, keyColor, valColor)
     item:setLabel(key, kr, kg, kb, ka)
     item:setValue(val, vr, vg, vb, va)
     recordItem(self, key, val, true)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -350,6 +363,7 @@ function ContextMT:addProgress(label, fraction, labelColor, barColor)
     item:setValue(string.rep(" ", 12), 0, 0, 0, 0)
     item:setProgress(fraction or 0, br, bg, bb, ba)
     recordItem(self, label, "            ", true)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -370,6 +384,7 @@ function ContextMT:addInteger(label, value, highGood, labelColor)
     item:setValueRight(value, hg)
     local valStr = (value > 0 and "+" or "") .. tostring(value)
     recordItem(self, label, valStr, true)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -381,6 +396,7 @@ function ContextMT:addSpacer()
     maybeInsertSeparator(self)
     local item = self.layout:addItem()
     item:setLabel(" ", 1, 1, 1, 1)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -396,12 +412,14 @@ function ContextMT:addHeader(text, color, noSpacer)
     if not noSpacer and (self._itemCount or 0) > 0 then
         local spacerItem = self.layout:addItem()
         spacerItem:setLabel(" ", 1, 1, 1, 1)
+        bumpRow(self)
     end
     local C = TooltipLib.Colors
     local r, g, b, a = resolveColor(color, C.HEADER[1], C.HEADER[2], C.HEADER[3], C.HEADER[4])
     local item = self.layout:addItem()
     item:setLabel(text, r, g, b, a)
     recordItem(self, text, nil, false)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -416,6 +434,7 @@ function ContextMT:addDivider(color)
     local item = self.layout:addItem()
     item:setLabel(" ", 0, 0, 0, 0)
     item:setProgress(1.0, r, g, b, a)
+    bumpRow(self)
     self._itemCount = (self._itemCount or 0) + 1
     return item
 end
@@ -471,6 +490,7 @@ function ContextMT:addText(text, color, maxWidth)
         recordItem(self, lines[i], nil, false)
         lastItem = item
     end
+    bumpRow(self, #lines)
     self._itemCount = (self._itemCount or 0) + #lines
     return lastItem
 end
@@ -706,6 +726,57 @@ function ContextMT:setAccentColor(color)
     end
 end
 
+--- Begin a titled section: an uppercased label row, ruled off from the
+--- content above. Like setAccentColor this is a declare-render split — the
+--- provider states "a section starts here", the framework decides the look:
+---
+---   undressed (or dress without an ornaments hook): the label row plus a
+---   plain thin divider row, all regular layout items — the classic look.
+---
+---   dressed with an ornaments hook (item/itemSlot): the divider row is
+---   OMITTED and the section's exact row geometry is handed to the dress's
+---   ornaments(panel, tooltip, geom, ...) at the end of the real pass, so
+---   the skin draws its own rule in its own material (never both).
+---
+--- The label is always a real layout item (it must occupy measured height
+--- on both the measure and real passes).
+---@param label string Section title (rendered uppercased)
+---@param color TooltipLibColor? Label colour override (default: the active
+---        dress's sectionLabelColor, else HEADER gray)
+---@return ObjectTooltip_LayoutItem labelItem
+function ContextMT:beginSection(label, color)
+    requireLayout(self, "beginSection")
+    maybeInsertSeparator(self)
+    if (self._itemCount or 0) > 0 then
+        local spacerItem = self.layout:addItem()
+        spacerItem:setLabel(" ", 1, 1, 1, 1)
+        bumpRow(self)
+    end
+    local ss = self._sectionState
+    local C = TooltipLib.Colors
+    local lc = color or (ss and ss.labelColor) or nil
+    local r, g, b, a = resolveColor(lc,
+        C.HEADER[1], C.HEADER[2], C.HEADER[3], C.HEADER[4])
+    local text = string.upper(tostring(label or ""))
+    if ss then
+        -- 0-based offset of the label row within the provider region;
+        -- recorded BEFORE the label bumps the count
+        ss.list[#ss.list + 1] = { offset = ss.rows, label = text }
+    end
+    local item = self.layout:addItem()
+    item:setLabel(text, r, g, b, a)
+    recordItem(self, text, nil, false)
+    bumpRow(self)
+    self._itemCount = (self._itemCount or 0) + 1
+    if not (ss and ss.dressed) then
+        local rule = self.layout:addItem()
+        rule:setLabel(" ", 0, 0, 0, 0)
+        rule:setProgress(1.0, 0.35, 0.35, 0.35, 0.6)
+        bumpRow(self)
+    end
+    return item
+end
+
 -- Expose for Hook.lua
 TooltipLib._ContextMT = ContextMT
 
@@ -901,6 +972,14 @@ function RichTextContextMT:addDivider(color)
     local c = color or DEFAULT_DIVIDER_COLOR
     self._lines[#self._lines + 1] = rtColorTag(c) .. "----------------"
     self._itemCount = (self._itemCount or 0) + 1
+end
+
+--- Begin a titled section (rich text degrade: uppercased header + divider).
+---@param label string
+---@param color TooltipLibColor?
+function RichTextContextMT:beginSection(label, color)
+    self:addHeader(string.upper(tostring(label or "")), color)
+    self:addDivider()
 end
 
 --- Add text (ISRichTextPanel handles word wrapping natively).
@@ -1257,6 +1336,14 @@ function RecipeContextMT:addDivider(color)
     self._itemCount = (self._itemCount or 0) + 1
 end
 
+--- Begin a titled section (recipe degrade: uppercased header + divider).
+---@param label string
+---@param color TooltipLibColor?
+function RecipeContextMT:beginSection(label, color)
+    self:addHeader(string.upper(tostring(label or "")), color)
+    self:addDivider()
+end
+
 --- Add multi-line text (word-wrapped at panel width during render).
 ---@param text string
 ---@param color TooltipLibColor?
@@ -1383,6 +1470,11 @@ function RecordingRichTextContextMT:addText(text, color, maxWidth)
     return self._realCtx:addText(text, color, maxWidth)
 end
 
+function RecordingRichTextContextMT:beginSection(label, color)
+    self._displayList[#self._displayList + 1] = { "beginSection", label, color }
+    return self._realCtx:beginSection(label, color)
+end
+
 --- Create a recording proxy for a rich text context.
 ---@param ctx table The real RichTextContextMT context
 ---@return table proxy
@@ -1414,6 +1506,7 @@ local richTextReplayDispatch = {
     addHeader      = function(ctx, e) ctx:addHeader(e[2], e[3], e[4]) end,
     addDivider     = function(ctx, e) ctx:addDivider(e[2]) end,
     addText        = function(ctx, e) ctx:addText(e[2], e[3], e[4]) end,
+    beginSection   = function(ctx, e) ctx:beginSection(e[2], e[3]) end,
 }
 
 --- Replay a recorded rich text display list onto a context.
@@ -1543,6 +1636,11 @@ function RecordingContextMT:setAccentColor(color)
     return self._realCtx:setAccentColor(color)
 end
 
+function RecordingContextMT:beginSection(label, color)
+    self._displayList[#self._displayList + 1] = { "beginSection", label, color }
+    return self._realCtx:beginSection(label, color)
+end
+
 -- ============================================================================
 -- Layout display list replay
 -- ============================================================================
@@ -1561,6 +1659,7 @@ local replayDispatch = {
     addTexture    = function(ctx, e) ctx:addTexture(e[2], e[3], e[4]) end,
     addTextureRow = function(ctx, e) ctx:addTextureRow(e[2], e[3], e[4]) end,
     setAccentColor = function(ctx, e) ctx:setAccentColor(e[2]) end,
+    beginSection  = function(ctx, e) ctx:beginSection(e[2], e[3]) end,
 }
 
 --- Replay a recorded display list onto a context.

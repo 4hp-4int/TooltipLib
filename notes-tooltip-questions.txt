@@ -1,0 +1,22 @@
+--- Reply (Steam, ~2 comments) ---
+
+[Comment 1]
+
+Solid info, thanks for the code + the ordering clue.
+
+Two fixes landing in v1.2.0:
+[list]
+[*] [code]addInteger[/code] crash when called without [code]highGood[/code] — your call shape ([code](label, value, true)[/code]) is fine, caught a separate bug along the way
+[*] [code]align="right"[/code] option for [code]addKeyValue[/code], [code]addFloat[/code], [code]addPercentage[/code]
+[/list]
+
+Priority nit: 505 is past LAST=500, so you always render after every other TooltipLib provider. Works fine, but if you ever want to be earlier, drop to ~50 (between FIRST and EARLY).
+
+
+[Comment 2]
+
+On the bar: your "before vs after their tooltip" clue is the giveaway. TooltipLib has a "deferred mode" path that fires when another tooltip framework overrides [code]DoTooltip[/code]. AMMS / Backpack mods are likely culprits. In deferred mode we paint a background extension (vanilla opacity) below the foreign framework's content before our provider rows render — that extension is what you're seeing as the bar.
+
+Confirm in one step: set [code]TooltipLib.debug = true[/code] before your provider registers, hover a clothing item, then grep [code]console.txt[/code] for [code]deferred_mode[/code]. If that line shows up, it's our deferred path — and I'll fix it properly in v1.2.0 (seam color matching to whatever framework appended above us).
+
+CleanUI is innocent here — I audited 42.16 end-to-end and it has zero overrides on [code]ISToolTipInv[/code] / [code]ObjectTooltip[/code] / [code]DoTooltip[/code]. The bar repros even without CleanUI on, just with AMMS/Backpack present.

@@ -6,6 +6,7 @@ changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
 [b]v1.5.0[/b]
 [list]
+[*] Added: tooltip content can now be organized into titled sections. Mods mark where a section starts ("NUTRITION", "CONDITION", ...) and TooltipLib draws the section heading with a divider rule — or, when a tooltip skin is active, hands the skin the exact row positions so it can draw its own section rules and dotted leader lines between labels and values, in its own art style.
 [*] Added: mods can now reskin the tooltip box itself. A mod registers a "panel dress" and TooltipLib swaps the flat black rectangle for that mod's textured card — on inventory item tooltips, crafting slot tooltips, and world-object tooltips — while everything written on the tooltip stays exactly where it was. If the skin ever fails (or another mod owns the tooltip panel), the vanilla box comes straight back. First user: Sauce Inventory Rendering's kraft ledger card.
 [*] Added: the colored accent line on the tooltip's edge is now a shared channel. Mods declare the color (SauceTooltips' item-type colors, VorpallySauced's upgrade-tier colors) and TooltipLib draws one line — no more two mods painting over each other's bars — and a tooltip skin can pick the color up too (Sauce Inventory Rendering's card tints its title band to match the item).
 [/list]

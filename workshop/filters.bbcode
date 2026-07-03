@@ -1,0 +1,91 @@
+[h1]Filters & Surfaces Cheat Sheet[/h1]
+
+[h2]Built-in Item Filters[/h2]
+
+Pass these as the [b]enabled[/b] field. All are pcall-safe — if PZ renames an API method, the filter returns false and logs a warning instead of crashing your mod.
+
+[code]
+local F = TooltipLib.Filters
+
+F.weapon         -- any HandWeapon (melee or ranged)
+F.melee          -- melee only
+F.firearm        -- ranged only (guns, bows)
+F.clothing       -- clothing and armor
+F.food           -- food items
+F.container      -- bags, backpacks
+F.fluidContainer -- water bottles, gas cans
+F.drainable      -- batteries, lighters
+F.literature     -- books and magazines
+F.skillBook      -- skill XP books only
+F.recipeBook     -- recipe-teaching books only
+F.key            -- keys
+F.stackable      -- ammo, nails, etc.
+F.medical        -- bandages, pills
+[/code]
+
+[h2]World Object Filters[/h2]
+
+[code]
+F.generator      -- IsoGenerator
+F.rainCollector  -- rain barrels
+F.farmPlant      -- farm plants
+[/code]
+
+[h2]Filter Factories[/h2]
+
+[code]
+F.customType("Base.Axe")           -- specific item type
+F.instanceof("Literature")         -- Java class check
+F.hasTag("COOKABLE")               -- script tag
+F.displayCategory("SkillBook")     -- display category
+F.objectSprite("appliances_01_0")  -- world object sprite
+F.inRange(3)                       -- within N tiles of player
+[/code]
+
+[h2]Combining Filters[/h2]
+
+[code]
+-- Both must pass
+enabled = F.allOf(F.clothing, F.container)
+
+-- Either passes
+enabled = F.anyOf(F.weapon, F.clothing)
+
+-- Invert
+enabled = F.negate(F.food)
+
+-- Custom logic on top of a filter
+local isWeaponOrClothing = F.anyOf(F.weapon, F.clothing)
+enabled = function(item)
+    if not isWeaponOrClothing(item) then return false end
+    return myCustomCheck(item)
+end,
+[/code]
+
+[b]Tip:[/b] Pre-compose combinators outside the function. Don't create new allOf/anyOf inside enabled() — that allocates a closure every hover frame.
+
+[h2]The Six Surfaces[/h2]
+
+[b]Layout surfaces[/b] (item, itemSlot, object) — use PZ's ObjectTooltip layout. Aligned columns. Support addTexture/addTextureRow.
+
+[b]Rich text surfaces[/b] (skill, vehicle) — append to ISToolTip via rich text markup. Progress bars render as colored percentage text.
+
+[b]Recipe surface[/b] — uses a RecipeContentPanel. Full visual progress bars. Access raw ISTableLayout via ctx.rootTable if needed.
+
+All six share the same add* methods. Your callback code is portable across surfaces.
+
+[code]
+-- Item tooltip
+target = "item"      -- enabled(item),        ctx.item
+target = "itemSlot"  -- enabled(item),        ctx.item
+
+-- World object
+target = "object"    -- enabled(object, sq),  ctx.object, ctx.square
+
+-- Rich text
+target = "skill"     -- enabled(perk, level), ctx.perk, ctx.level, ctx.player
+target = "vehicle"   -- enabled(part, veh),   ctx.part, ctx.vehicle
+
+-- Recipe
+target = "recipe"    -- enabled(recipe),      ctx.recipe, ctx.logic, ctx.player
+[/code]

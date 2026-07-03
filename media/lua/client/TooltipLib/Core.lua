@@ -51,6 +51,8 @@
 --   Panel dress:  setPanelDress, clearPanelDress, getPanelDress
 --   Accent:       ctx:setAccentColor (item/itemSlot; the framework draws the
 --                 accent line once, or feeds it to the panel dress)
+--   Sections:     ctx:beginSection (all surfaces; item/itemSlot hand exact row
+--                 geometry to the panel dress's `ornaments` hook)
 --
 -- INTERNAL API (may change without notice, prefixed with _):
 --   _providers, _providersByTarget, _providerVersion,
@@ -62,7 +64,7 @@
 --   _createRecordingContext, _replayDisplayList,
 --   _createRecordingRichTextContext, _replayRichTextDisplayList,
 --   _getDetailKeyCode, _log, _logOnce, _debugLog, _warn,
---   _panelDress, _resolvePanelDress, _drawPanelDress,
+--   _panelDress, _resolvePanelDress, _drawPanelDress, _drawPanelOrnaments,
 --   _mpAllowedMethods, _isMPMethodAllowed,
 --   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
@@ -779,6 +781,27 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 ---            texture pack is missing or a user option is off.
 ---   surfaces table|nil   e.g. { item = true, object = true }; nil = all of
 ---            item / itemSlot / object.
+---   ornaments function|nil (item/itemSlot) ornaments(panel, tooltip, geom,
+---            surface, accent) — called at the END of the real pass with the
+---            layout's EXACT row geometry, so the skin can draw row-anchored
+---            flourishes (section rules, dot leaders) in its own material.
+---            geom = {
+---              left, startY, endY, lineSpacing, width,
+---              midX          -- x where the value column begins
+---              valueRightX,  -- right edge of the value column
+---              barH,         -- vanilla progress-bar height for this font
+---              rows = { { y, h, kind = "kv"|"label"|"bar"|"rule"|"blank",
+---                         labelW, valueW, provider = bool,
+---                         fraction, barColor  -- bar/rule rows only: enough
+---                         -- to REPAINT the bar (vanilla rect = midX,
+---                         -- y + lineSpacing/2 - 1, valueRightX-midX, barH)
+---                       } ... },
+---              sections = { { y, h, label, labelW, rowIndex } ... },
+---            }
+---            While an ornaments hook is registered, ctx:beginSection omits
+---            its plain divider row — the hook draws the rule instead.
+---   sectionLabelColor table|nil {r,g,b,a} — default colour for
+---            ctx:beginSection labels while this dress is active.
 --- }
 ---@return boolean true if the dress was accepted
 function TooltipLib.setPanelDress(spec)
@@ -863,6 +886,24 @@ function TooltipLib._drawPanelDress(spec, panel, tooltip, w, h, surface, accent)
     if not ok then
         TooltipLib._logOnce("panel_dress_error",
             "Panel dress '" .. tostring(spec.id) .. "' draw error — " ..
+            "dress cleared, vanilla box restored: " .. tostring(err))
+        TooltipLib._panelDress = nil
+        return false
+    end
+    return true
+end
+
+--- Invoke the dress's ornaments hook with the layout row geometry. Callers
+--- gate to the real pass; here we only validate. An error clears the dress
+--- (fail-open, one console line — same discipline as _drawPanelDress).
+---@return boolean drew
+function TooltipLib._drawPanelOrnaments(spec, panel, tooltip, geom, surface, accent)
+    if not spec or type(spec.ornaments) ~= "function" then return false end
+    if type(geom) ~= "table" or not geom.rows then return false end
+    local ok, err = pcall(spec.ornaments, panel, tooltip, geom, surface, accent)
+    if not ok then
+        TooltipLib._logOnce("panel_ornaments_error",
+            "Panel dress '" .. tostring(spec.id) .. "' ornaments error — " ..
             "dress cleared, vanilla box restored: " .. tostring(err))
         TooltipLib._panelDress = nil
         return false

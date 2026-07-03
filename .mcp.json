@@ -7,6 +7,14 @@
         "PYTHONUNBUFFERED": "1"
       }
     },
+    "blender": {
+      "command": "uvx",
+      "args": ["blender-mcp"]
+    },
+    "math-mcp": {
+      "command": "C:/Users/Khalen/Code/mcp-servers/math-mcp/.venv/Scripts/python.exe",
+      "args": ["-m", "math_mcp.server"]
+    },
     "mdb-mem": {
       "command": "node",
       "args": ["C:/Users/Khalen/Code/mdb-mem/build/src/index.js"]

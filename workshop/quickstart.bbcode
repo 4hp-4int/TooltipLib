@@ -1,0 +1,99 @@
+[h1]Quick Start: Your First TooltipLib Provider[/h1]
+
+Want to add content to PZ tooltips without the metatable juggling? Here's everything you need.
+
+[h2]Step 1: Depend on TooltipLib[/h2]
+
+In your mod's [b]mod.info[/b], add:
+[code]require=TooltipLib[/code]
+
+[h2]Step 2: Register a Provider[/h2]
+
+Create a Lua file in [b]media/lua/client/[/b] (tooltip code is client-only):
+
+[code]
+require "TooltipLib/Core"
+
+TooltipLib.registerProvider({
+    id          = "MyMod_WeaponDamage",
+    target      = "item",
+    enabled     = TooltipLib.Filters.weapon,
+    cacheable   = true,
+    description = "Weapon damage stats",
+    callback    = function(ctx)
+        local item = ctx.item
+        local minDmg = item:getMinDamage()
+        local maxDmg = item:getMaxDamage()
+
+        ctx:addKeyValue("Min Damage:", string.format("%.1f", minDmg))
+        ctx:addKeyValue("Max Damage:", string.format("%.1f", maxDmg))
+    end,
+})
+[/code]
+
+That's it. No hooking ISToolTipInv. No pcall wrapping. No layout management. Your content appears below vanilla stats, columns aligned, alongside every other mod's content.
+
+[h2]What Each Field Does[/h2]
+
+[list]
+[*] [b]id[/b] — Unique string. Namespace it to your mod (e.g. "MyMod_Feature").
+[*] [b]target[/b] — Which tooltip surface: "item", "itemSlot", "object", "skill", "vehicle", or "recipe".
+[*] [b]enabled[/b] — Filter function. Without it, your callback runs for ALL items. Use built-in filters or write your own.
+[*] [b]cacheable[/b] — Set true and the framework records your ctx calls once, then replays them for free on subsequent frames. Big perf win.
+[*] [b]description[/b] — Human-readable name. Shows up in Mod Options as a player-facing toggle. Always set this.
+[*] [b]callback[/b] — Where you add content. Gets a context object (ctx) with methods like addKeyValue, addProgress, addLabel, etc.
+[/list]
+
+[h2]What You Can Add[/h2]
+
+[code]
+local C = TooltipLib.Colors
+
+-- Colored label
+ctx:addLabel("Legendary", C.GOLD)
+
+-- Key-value pair with aligned columns
+ctx:addKeyValue("Damage:", "+15%", C.WHITE, C.GREEN)
+
+-- Progress bar (0.0 to 1.0)
+ctx:addProgress("Durability:", 0.75, nil, C.BLUE)
+
+-- Auto-colored integers (+N green, -N red)
+ctx:addInteger("Critical:", 15, true)
+
+-- Auto-colored percentages
+ctx:addPercentage("Crit Chance:", 0.15, 0, true)  -- "+15%"
+
+-- Float with decimal control
+ctx:addFloat("Speed:", 0.35, 1, true)  -- "+0.4"
+
+-- Section header (auto-spacer above)
+ctx:addHeader("-- Bonuses --", C.GOLD)
+
+-- Blank line / horizontal rule
+ctx:addSpacer()
+ctx:addDivider()
+
+-- Word-wrapped text block
+ctx:addText("A long description that wraps nicely.", C.GRAY)
+[/code]
+
+[h2]Detail Mode (Shift Key)[/h2]
+
+Don't clutter tooltips. Gate extra info behind the detail key:
+
+[code]
+callback = function(ctx)
+    ctx:addKeyValue("Damage:", "15")  -- always visible
+
+    if ctx.detail then
+        ctx:addKeyValue("Base Damage:", "10")
+        ctx:addKeyValue("Bonus:", "+5")
+    end
+end,
+[/code]
+
+Or hide the entire provider until Shift is held:
+[code]
+detailOnly = true,
+[/code]

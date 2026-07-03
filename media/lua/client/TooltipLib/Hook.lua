@@ -134,6 +134,106 @@ local function InstallHook()
     end
 
     -- ================================================================
+    -- Layout row geometry (for the panel dress's ornaments hook)
+    -- ================================================================
+    -- Walks the rendered Java Layout AFTER render() (calcSizes has run,
+    -- heights and measured widths are final) and BEFORE endLayout() frees
+    -- the items back to the pool. Every LayoutItem field read here is a
+    -- public Java field (same access pattern as tooltip.padLeft), and the
+    -- value-column math replicates Layout.render()'s exactly — so the
+    -- ornaments a skin draws from this land pixel-true under the rows.
+    --
+    -- The provider region is located by count: sectionState.rows is the
+    -- exact number of items the ctx:add* methods appended, so the first
+    -- provider row is items:size() - rows (everything before it came from
+    -- vanilla's DoTooltipEmbedded).
+    local function buildLayoutGeometry(layout, sectionState, left, startY,
+                                       lineSpacing, layoutStats)
+        local items = layout.items
+        local n = items:size()
+        if n <= 0 then return nil end
+        local padX = math.max(
+            layoutStats.tm:MeasureStringX(layoutStats.font, "W"), 8)
+        local minLW = layout.minLabelWidth or 0
+        local minVW = layout.minValueWidth or 0
+        local widthValueRight = minVW
+        local mid = 0
+        for i = 0, n - 1 do
+            local it = items:get(i)
+            if it.hasValue then
+                local lw = it.labelWidth or 0
+                if lw < minLW then lw = minLW end
+                if (lw + padX) > mid then mid = lw + padX end
+                local vwr = it.valueWidthRight or 0
+                if vwr > widthValueRight then widthValueRight = vwr end
+            end
+        end
+        local rows = {}
+        local providerRows = sectionState and sectionState.rows or 0
+        local firstProvider = n - providerRows
+        local y = startY
+        for i = 0, n - 1 do
+            local it = items:get(i)
+            local pf = it.progressFraction or -1
+            local lbl = it.label
+            local blankLbl = (lbl == nil or lbl == " " or lbl == "")
+            local kind
+            if pf >= 0 then
+                -- a labelled progress row is a "bar" (freshness, condition);
+                -- a labelless one is a "rule" (addDivider / section fallback)
+                -- — skins restyle gauges, not dividers
+                kind = blankLbl and "rule" or "bar"
+            elseif it.hasValue and it.value ~= nil then
+                kind = "kv"
+            elseif blankLbl then
+                kind = "blank"
+            else
+                kind = "label"
+            end
+            local h = it.height or lineSpacing
+            local row = {
+                y = y, h = h, kind = kind,
+                labelW = it.labelWidth or 0,
+                valueW = (it.rightJustify and it.valueWidthRight or it.valueWidth) or 0,
+                provider = (i >= firstProvider),
+            }
+            if pf >= 0 then
+                -- everything a skin needs to REPAINT the bar exactly:
+                -- vanilla draws it at (midX, y + lineSpacing/2 - 1,
+                -- valueRightX - midX, geom.barH) with this fraction/colour
+                row.fraction = pf
+                row.barColor = { it.r1 or 1, it.g1 or 1, it.b1 or 1, it.a1 or 1 }
+            end
+            rows[#rows + 1] = row
+            y = y + h
+        end
+        local sections = {}
+        if sectionState then
+            for si = 1, #sectionState.list do
+                local s = sectionState.list[si]
+                local r = rows[firstProvider + s.offset + 1]
+                if r then
+                    sections[#sections + 1] = {
+                        y = r.y, h = r.h, label = s.label,
+                        labelW = r.labelW,
+                        rowIndex = firstProvider + s.offset + 1,
+                    }
+                end
+            end
+        end
+        return {
+            left = left, startY = startY, endY = y,
+            lineSpacing = lineSpacing,
+            midX = left + mid,
+            valueRightX = left + mid + widthValueRight,
+            -- vanilla's progress-bar height by tooltip font (LayoutItem.render)
+            barH = (layoutStats.fontSize == "Large" and 7)
+                or (layoutStats.fontSize == "Medium" and 6) or 5,
+            rows = rows, sections = sections,
+        }
+    end
+
+    -- ================================================================
     -- Layout dispatch: phases 1-4 for Layout-family surfaces
     -- ================================================================
     -- Shared by ISToolTipInv and ISToolTipItemSlot hooks.
@@ -145,7 +245,10 @@ local function InstallHook()
     -- @param surfaceName       "item" or "itemSlot"
     -- @param extraFields       table|nil — extra fields for each context
     -- @param fallbackDoTooltip function — original DoTooltip for error fallback
-    local function doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld, surfaceName, extraFields, fallbackDoTooltip, deferStartY, hasHiddenDetail)
+    -- @param dressSpec         table|nil — active panel dress; its presence
+    --                          (with an ornaments hook) switches beginSection
+    --                          to dressed mode and enables the geometry walk
+    local function doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld, surfaceName, extraFields, fallbackDoTooltip, deferStartY, hasHiddenDetail, dressSpec)
 
         -- Measure pass detection: ISToolTipInv/ISToolTipItemSlot.render call
         -- DoTooltip TWICE per render — first with setMeasureOnly(true) to size
@@ -176,6 +279,19 @@ local function InstallHook()
         -- caller draws the classic bar / feeds the panel dress from the
         -- returned colour.
         local accentState = { color = nil }
+        -- Section channel: beginSection records each declared section here
+        -- (rows = exact count of layout items the provider region added).
+        -- `dressed` switches beginSection to omit its plain divider row —
+        -- the dress's ornaments hook draws the rule from the geometry
+        -- instead. `labelColor` lets the dress style section labels at
+        -- declare time.
+        local sectionState = {
+            rows = 0,
+            list = {},
+            dressed = (dressSpec and type(dressSpec.ornaments) == "function")
+                and true or false,
+            labelColor = dressSpec and dressSpec.sectionLabelColor or nil,
+        }
         local contexts = {}
         for i = 1, providerCount do
             local ctx = resetTable(ctxPool[i])
@@ -184,6 +300,7 @@ local function InstallHook()
             ctx.detail = detailHeld
             ctx.surface = surfaceName
             ctx._accentState = accentState
+            ctx._sectionState = sectionState
             setmetatable(ctx, TooltipLib._ContextMT)
             if extraFields then
                 for k, v in pairs(extraFields) do
@@ -222,6 +339,7 @@ local function InstallHook()
 
         local endY = 0
         local width = 0
+        local geom = nil
         local layoutOk, layoutErr = pcall(function()
             local lineSpacing = 14
             pcall(function()
@@ -265,15 +383,17 @@ local function InstallHook()
             -- tooltip's right edge regardless of label-only-row width.
             -- Match ObjectTooltip's actual font (configurable via Core option).
             local ttFont = UIFont.Small
+            local ttFontSize = "Small"
             pcall(function()
                 local opt = Core.getInstance():getOptionTooltipFont()
-                if opt == "Large" then ttFont = UIFont.Large
-                elseif opt == "Medium" then ttFont = UIFont.Medium
+                if opt == "Large" then ttFont = UIFont.Large; ttFontSize = "Large"
+                elseif opt == "Medium" then ttFont = UIFont.Medium; ttFontSize = "Medium"
                 end
             end)
             local layoutStats = {
                 tm = getTextManager(),
                 font = ttFont,
+                fontSize = ttFontSize,
                 maxLabelWithValue = 0,
                 maxValueCol = 0,
                 maxLabelOnly = 0,
@@ -405,6 +525,16 @@ local function InstallHook()
                 end
             end)
             endY = renderLayout:render(padLeft, startY, tooltip)
+            -- Row geometry for the ornaments hook: walk the layout between
+            -- render() (sizes final) and endLayout() (items freed). pcall'd
+            -- separately — a geometry failure must not take down the layout
+            -- (ornaments just don't draw; the dress itself is unaffected).
+            if sectionState.dressed then
+                pcall(function()
+                    geom = buildLayoutGeometry(renderLayout, sectionState,
+                        padLeft, startY, lineSpacing, layoutStats)
+                end)
+            end
             tooltip:endLayout(renderLayout)
 
             -- Compute effective minimum width from provider requests
@@ -585,7 +715,8 @@ local function InstallHook()
             end
         end
 
-        return accentState.color
+        if geom then geom.width = width end
+        return accentState.color, geom
     end
 
     -- ================================================================
@@ -798,8 +929,8 @@ local function InstallHook()
                 TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "item", dressAccent)
             end
             if activeProviders then
-                local accent = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                    "item", nil, original_DoTooltip, nil, hasHiddenDetail)
+                local accent, geom = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
+                    "item", nil, original_DoTooltip, nil, hasHiddenDetail, dressSpec)
                 -- Accent cache discipline per pass: the real pass always
                 -- writes (truth). The measure pass writes only NON-NIL — a
                 -- callback-declared accent (recommended: it's a pure type/
@@ -816,6 +947,12 @@ local function InstallHook()
                     -- integrates the accent (rail tint) instead
                     if not dressSpec then
                         drawAccentLine(tooltip, accent)
+                    elseif geom then
+                        -- row-anchored flourishes (section rules, leader
+                        -- dots): same-frame geometry, drawn over the card,
+                        -- under nothing — rules and dots live in the gaps
+                        TooltipLib._drawPanelOrnaments(dressSpec, self,
+                            tooltip, geom, "item", accent)
                     end
                 elseif accent ~= nil then
                     inv_accentId, inv_accentColor = itemId, accent
@@ -1137,8 +1274,8 @@ local function InstallHook()
                     TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "itemSlot", dressAccent)
                 end
                 if activeProviders then
-                    local accent = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                        "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip)
+                    local accent, geom = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
+                        "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip, nil, nil, dressSpec)
                     -- real pass writes truth; measure pass warms non-nil
                     -- (see ISToolTipInv hook)
                     local measuring = false
@@ -1147,6 +1284,9 @@ local function InstallHook()
                         slot_accentId, slot_accentColor = itemId, accent
                         if not dressSpec then
                             drawAccentLine(tooltip, accent)
+                        elseif geom then
+                            TooltipLib._drawPanelOrnaments(dressSpec, self,
+                                tooltip, geom, "itemSlot", accent)
                         end
                     elseif accent ~= nil then
                         slot_accentId, slot_accentColor = itemId, accent

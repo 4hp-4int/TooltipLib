@@ -1,0 +1,156 @@
+[h1]Caching, Errors & Common Patterns[/h1]
+
+[h2]Caching[/h2]
+
+Tooltip callbacks run [b]every frame[/b] while hovering. If your callback does anything more than reading a couple fields, cache it:
+
+[code]
+cacheable = true,
+[/code]
+
+The framework records your ctx method calls once, then replays them from a display list. Your code literally doesn't run on subsequent frames.
+
+Cache auto-refreshes every 60 frames (~1 second). Tune it:
+[code]
+cacheable = true, maxAge = 30,   -- refresh every ~0.5s
+cacheable = true, maxAge = 0,    -- never auto-refresh
+[/code]
+
+[b]Gotcha:[/b] cache keys on the item ID + detail state. If your output depends on external state (player perks, time of day), provide a cacheKey:
+
+[code]
+cacheable = true,
+cacheKey = function(item)
+    return tostring(item:getModData().myVersion or 0)
+end,
+[/code]
+
+Or invalidate manually when your state changes:
+[code]
+TooltipLib.invalidateCache("MyMod_Feature")
+[/code]
+
+[b]Caching only works for item and itemSlot surfaces.[/b] Object, skill, vehicle, and recipe surfaces don't support it.
+
+[h2]Error Handling — Circuit Breaker[/h2]
+
+Every callback is pcall-wrapped. If yours throws, other providers keep running. But if you have a persistent bug, the [b]circuit breaker[/b] kicks in: 10 consecutive errors and your provider is auto-disabled for the session.
+
+You'll see in the log:
+[code]
+[TooltipLib] Provider 'MyMod' disabled after 10 consecutive errors.
+Call TooltipLib.resetProvider('MyMod') to re-enable.
+[/code]
+
+A single successful render resets the counter. Only persistent every-frame errors trip it.
+
+[h2]Common Patterns[/h2]
+
+[h3]Optional dependency on TooltipLib[/h3]
+
+If TooltipLib is nice-to-have but not required:
+[code]
+if TooltipLib and TooltipLib.checkVersion("1.0.0") then
+    TooltipLib.registerProvider({ ... })
+end
+[/code]
+
+If it's a hard dependency, use minVersion in registration:
+[code]
+minVersion = "1.0.0",  -- rejects with a clear log if too old
+[/code]
+
+[h3]Item providers auto-apply to crafting slots[/h3]
+
+Your target="item" provider will also appear in ISToolTipItemSlot (crafting panel) automatically. If you need to hide content in crafting context:
+[code]
+callback = function(ctx)
+    if ctx.surface == "itemSlot" then return end
+    -- item-only content here
+end,
+[/code]
+
+[h3]World object provider (generators example)[/h3]
+
+[code]
+TooltipLib.registerProvider({
+    id = "MyMod_Generator",
+    target = "object",
+    enabled = TooltipLib.Filters.generator,
+    description = "Generator status",
+    callback = function(ctx)
+        local gen = ctx.object
+        if gen:isActivated() then
+            ctx:addLabel("Running", TooltipLib.Colors.GREEN)
+        else
+            ctx:addLabel("Off", TooltipLib.Colors.RED)
+        end
+        ctx:addProgress("Fuel:", gen:getFuel() / 100)
+    end,
+})
+[/code]
+
+[h3]Skill provider[/h3]
+
+[code]
+TooltipLib.registerProvider({
+    id = "MyMod_SkillXP",
+    target = "skill",
+    description = "XP multiplier",
+    enabled = function(perk, level)
+        return level < 10
+    end,
+    callback = function(ctx)
+        local ok, mult = pcall(function()
+            return ctx.player:getXp():getMultiplier(ctx.perk)
+        end)
+        if ok and mult then
+            ctx:addFloat("XP Mult:", mult, 2, true)
+        end
+    end,
+})
+[/code]
+
+[h3]Custom colors[/h3]
+
+Built-in colors are frozen (read-only). Define your own as {r, g, b, a}:
+[code]
+local MY_TEAL = {0.2, 0.8, 0.7, 1.0}
+ctx:addLabel("Enchanted", MY_TEAL)
+[/code]
+
+[h2]Debugging[/h2]
+
+[code]
+TooltipLib.debug = true  -- verbose logging (cache, filters, etc.)
+
+-- What's registered?
+local providers = TooltipLib.getProviders()
+for _, p in ipairs(providers) do
+    print(p.id, p.target, p.priority)
+end
+
+-- Quick checks
+TooltipLib.hasProvider("MyMod")
+TooltipLib.getProviderCount("item")
+[/code]
+
+[h2]Full API[/h2]
+
+[code]
+TooltipLib.registerProvider(options)              -- register
+TooltipLib.removeProvider("id")                  -- unregister
+TooltipLib.replaceProvider(options)               -- atomic remove+register
+TooltipLib.resetProvider("id")                   -- re-enable after breaker
+TooltipLib.setProviderEnabled("id", bool)        -- player toggle
+TooltipLib.isProviderEnabled("id")               -- check toggle
+TooltipLib.invalidateCache("id")                 -- clear one cache
+TooltipLib.invalidateCache()                     -- clear all
+TooltipLib.invalidateActiveProviders()           -- re-eval all filters
+TooltipLib.hasProvider("id")                     -- exists?
+TooltipLib.getProviderCount()                    -- total count
+TooltipLib.getProviders()                        -- introspection
+TooltipLib.getHookStatus()                       -- hook install status
+TooltipLib.checkVersion("1.0.0")                 -- version check
+TooltipLib.VERSION                               -- "1.1.0"
+[/code]
