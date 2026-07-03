@@ -314,7 +314,7 @@ end
 ---@field detailOnly? boolean Only show when detail key is held (default false)
 ---@field hasDetailContent? boolean Declares this provider shows extra content in detail mode (triggers "[Shift] Details" hint)
 ---@field minWidth? number Minimum tooltip width in pixels (default 150)
----@field replacesVanilla? boolean Draw opaque bg to cover vanilla content (object surface only, default false)
+---@field replacesVanilla? boolean Object surface: draw opaque bg to cover vanilla content. Item/itemSlot surfaces: CLAIM the vanilla rows — DoTooltipEmbedded is skipped for items this provider is active on (the framework still draws the item name line), and the provider re-emits the content it owns through ctx, so every row flows through the layout/section/ornament pipeline. Claim only item classes you cover COMPLETELY: skipped vanilla rows are information loss. (default false)
 ---@field mpFields? string[] Java method names to call on server for MP data (object surface)
 ---@field mpContainers? boolean Request container metadata from server (object surface)
 ---@field mpModData? string[] ModData field names to read from server (object surface)
@@ -416,8 +416,10 @@ function TooltipLib.registerProvider(options)
             TooltipLib._log("registerProvider: replacesVanilla must be a boolean or nil")
             return false
         end
-        if options.target ~= nil and options.target ~= "object" then
-            TooltipLib._log("registerProvider: replacesVanilla is only valid for target='object'")
+        if options.target ~= nil and options.target ~= "object"
+            and options.target ~= "item" and options.target ~= "itemSlot" then
+            TooltipLib._log("registerProvider: replacesVanilla is only valid for " ..
+                "target='object', 'item' or 'itemSlot'")
             return false
         end
     end

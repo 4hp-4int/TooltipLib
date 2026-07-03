@@ -301,9 +301,20 @@ local function InstallHook()
         local padBottom = tooltip.padBottom or 5
         local padTop = tooltip.padTop or 5
 
+        -- Vanilla-row replacement: an active provider CLAIMS the embedded
+        -- vanilla rows for this item (it re-emits what it owns through ctx).
+        -- DoTooltipEmbedded is skipped; the name line — which vanilla draws
+        -- inside the embed — is drawn by the framework instead, so a
+        -- replacing provider never has to fake the header.
+        local replacing = false
+        for i = 1, providerCount do
+            if activeProviders[i].replacesVanilla then replacing = true; break end
+        end
+
         local endY = 0
         local width = 0
         local geom = nil
+        local replaceNameW = 0
         local layoutOk, layoutErr = pcall(function()
             local lineSpacing = 14
             pcall(function()
@@ -330,7 +341,25 @@ local function InstallHook()
                 providerLayout = tooltip:beginLayout()
             else
                 vanillaLayout = tooltip:beginLayout()
-                tooltipItem:DoTooltipEmbedded(tooltip, vanillaLayout, 0)
+                if replacing then
+                    -- claimed: no vanilla rows. Draw the name line where the
+                    -- embed would have (same spot, vanilla's warm-white ink;
+                    -- real pass only — the measure pass just sizes it).
+                    pcall(function()
+                        local nm = tooltipItem:getName()
+                        if nm and nm ~= "" then
+                            local font = tooltip:getFont()
+                            if not measureOnly then
+                                tooltip:DrawText(font, nm, padLeft, padTop,
+                                    1.0, 1.0, 0.8, 1.0)
+                            end
+                            replaceNameW = padLeft +
+                                getTextManager():MeasureStringX(font, nm) + padRight
+                        end
+                    end)
+                else
+                    tooltipItem:DoTooltipEmbedded(tooltip, vanillaLayout, 0)
+                end
                 -- Provider items go into the SAME layout as vanilla
                 providerLayout = vanillaLayout
             end
@@ -492,8 +521,13 @@ local function InstallHook()
             local endYLayout = endY   -- before the detail hint advances it
             tooltip:endLayout(renderLayout)
 
-            -- Compute effective minimum width from provider requests
+            -- Compute effective minimum width from provider requests (and
+            -- the framework-drawn name line when vanilla rows are claimed —
+            -- the embed's adjustWidth would normally account for it)
             local effectiveMinWidth = 150
+            if replaceNameW > effectiveMinWidth then
+                effectiveMinWidth = replaceNameW
+            end
             for i = 1, #activeProviders do
                 local mw = activeProviders[i].minWidth
                 if mw and mw > effectiveMinWidth then
