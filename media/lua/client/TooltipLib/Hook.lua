@@ -800,10 +800,14 @@ local function InstallHook()
             if activeProviders then
                 local accent = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
                     "item", nil, original_DoTooltip, nil, hasHiddenDetail)
-                -- cache from the REAL pass only: postRender-declared accents
-                -- don't exist on the measure pass, and each render measures
-                -- first — a measure-pass write would blank the cache right
-                -- before the real-pass dress reads it
+                -- Accent cache discipline per pass: the real pass always
+                -- writes (truth). The measure pass writes only NON-NIL — a
+                -- callback-declared accent (recommended: it's a pure type/
+                -- tier read) lands in the cache BEFORE this same render's
+                -- real pass, so the dress paints the right rail with no
+                -- first-frame flash; but a nil (postRender declarers set
+                -- nothing during measure) must not blank the cache right
+                -- before the real-pass dress reads it.
                 local measuring = false
                 pcall(function() measuring = tooltip:isMeasureOnly() end)
                 if not measuring then
@@ -813,6 +817,8 @@ local function InstallHook()
                     if not dressSpec then
                         drawAccentLine(tooltip, accent)
                     end
+                elseif accent ~= nil then
+                    inv_accentId, inv_accentColor = itemId, accent
                 end
             else
                 -- Dress-only frame: no provider content, vanilla renders
@@ -1133,7 +1139,8 @@ local function InstallHook()
                 if activeProviders then
                     local accent = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
                         "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip)
-                    -- real-pass only (see ISToolTipInv hook)
+                    -- real pass writes truth; measure pass warms non-nil
+                    -- (see ISToolTipInv hook)
                     local measuring = false
                     pcall(function() measuring = tooltip:isMeasureOnly() end)
                     if not measuring then
@@ -1141,6 +1148,8 @@ local function InstallHook()
                         if not dressSpec then
                             drawAccentLine(tooltip, accent)
                         end
+                    elseif accent ~= nil then
+                        slot_accentId, slot_accentColor = itemId, accent
                     end
                 else
                     original_DoTooltip(tooltipItem, tooltip)
