@@ -1,0 +1,26 @@
+[h1]TooltipLib v1.5.0[/h1]
+[i]Released: 2026-07-04[/i]
+
+[b]Tooltips become skinnable: consumer mods can now dress the whole tooltip box, declare accent colours and titled sections, and — new in this release — fully take over an item's vanilla rows. Nothing changes visually unless a mod that uses these features is installed.[/b]
+
+[h1]What's New (for players)[/h1]
+[list]
+[*][b]Nothing, by itself.[/b] This release is framework plumbing for mods built on TooltipLib (SauceTooltips, Sauce Inventory Rendering, VorpallySauced). Update it when they ask for it; your tooltips look exactly the same until a consumer mod dresses them.
+[/list]
+
+[h1]What's New (for addon authors)[/h1]
+[list]
+[*][b]Panel dress API.[/b] setPanelDress{id, active, draw, surfaces} / clearPanelDress lets a mod paint the tooltip's box (background + frame) on item, object, and world-object surfaces. TooltipLib suppresses the vanilla black box while a dress is active, restores it on error, and yields to foreign tooltip owners.
+[*][b]Accent channel.[/b] ctx:setAccentColor(...) on item/itemSlot declares the classic coloured bar as data instead of painted pixels — the framework draws one bar when undressed, and hands the accent to the dress when dressed. Accents now land on the very first frame (no flash).
+[*][b]Section channel.[/b] ctx:beginSection(label, color?) titles a block of rows on every surface. Undressed it renders as an uppercased label + divider; a dress with ornaments registered gets precise per-row geometry (rows, kinds, bar fractions, leader lines) reconstructed at declare time — no Java layout reads.
+[*][b]Full row takeover.[/b] Item providers may declare replacesVanilla=true to claim an item's vanilla tooltip rows entirely: TooltipLib skips the vanilla embed for that item, draws the name line itself, and the provider re-emits everything through the context API — the whole card becomes dressable. Built for SauceTooltips' VanillaCore.
+[*][b]Multi-line labels measure true.[/b] A single addLabel with embedded newlines now spans its real height in ornament geometry (this misaligned dressed cards for mods that pass multi-paragraph labels).
+[*][b]Debug probe.[/b] TooltipLib.gd() dumps the last real-pass ornament geometry to the console for dress authors.
+[/list]
+
+[h1]Compatibility[/h1]
+[list]
+[*][b]Save-safe.[/b] No save-data changes.
+[*][b]Backwards compatible.[/b] Every v1.4 provider runs unchanged; all new channels are opt-in. Consumer mods that direct-draw their accent bars keep working (the channel is preferred, not required).
+[*][b]Fail-open.[/b] A dress that errors is cleared and the vanilla box returns — a broken skin can never take your tooltips down with it.
+[/list]
