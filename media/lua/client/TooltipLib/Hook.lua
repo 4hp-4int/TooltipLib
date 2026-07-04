@@ -158,17 +158,27 @@ local function InstallHook()
         if n == 0 then return nil end
         local padX = math.max(
             layoutStats.tm:MeasureStringX(layoutStats.font, "W"), 8)
-        local startProv = endYLayout - n * lineSpacing
+        -- A noted row may span several layout lines (multi-line label — the
+        -- item's height is lines * lineSpacing); walk the grid by each row's
+        -- own height so the reconstruction stays aligned below one.
+        local totalLines = 0
+        for i = 1, n do
+            totalLines = totalLines + (meta[i].lines or 1)
+        end
+        local startProv = endYLayout - totalLines * lineSpacing
         local rows = {}
+        local y = startProv
         for i = 1, n do
             local m = meta[i]
+            local h = (m.lines or 1) * lineSpacing
             rows[i] = {
-                y = startProv + (i - 1) * lineSpacing,
-                h = lineSpacing, kind = m.kind,
+                y = y,
+                h = h, kind = m.kind,
                 labelW = m.labelW or 0, valueW = m.valueW or 0,
                 fraction = m.fraction, barColor = m.barColor,
                 provider = true,
             }
+            y = y + h
         end
         local sections = {}
         for si = 1, #sectionState.list do

@@ -258,9 +258,9 @@ end
 --- nil in-game (only methods work on the inner class). So the ornament
 --- geometry is built the other way round: every ContextMT method NOTES the
 --- row it adds at declare time — kind + measured label/value widths (+ bar
---- fraction/colour) — and Hook.lua reconstructs exact positions from the
---- rendered layout's end Y (the provider rows are the layout's LAST #meta
---- rows, and every ctx-added row is single-line: addText pre-splits).
+--- fraction/colour + line count for multi-line labels) — and Hook.lua
+--- reconstructs exact positions from the rendered layout's end Y (the
+--- provider rows are the layout's LAST #meta rows).
 local function noteRow(self, kind, label, value, extra)
     local ss = self._sectionState
     if not ss then return end
@@ -268,7 +268,24 @@ local function noteRow(self, kind, label, value, extra)
     local stats = self._layoutStats
     if stats and stats.tm then
         if label and label ~= "" and label ~= " " then
-            m.labelW = stats.tm:MeasureStringX(stats.font, label)
+            -- A label with embedded \n is ONE layout item spanning several
+            -- lines (calcSizes counts newlines). Note the line count so the
+            -- geometry reconstruction keeps the grid aligned (the VPS shard
+            -- lore card, 2026-07-03), and measure the WIDEST line.
+            if string.find(label, "\n", 1, true) then
+                local lines, maxW = 0, 0
+                for line in string.gmatch(label .. "\n", "([^\n]*)\n") do
+                    lines = lines + 1
+                    if line ~= "" then
+                        local w = stats.tm:MeasureStringX(stats.font, line)
+                        if w > maxW then maxW = w end
+                    end
+                end
+                if lines > 1 then m.lines = lines end
+                m.labelW = maxW
+            else
+                m.labelW = stats.tm:MeasureStringX(stats.font, label)
+            end
         end
         if value and value ~= "" and value ~= " " then
             m.valueW = stats.tm:MeasureStringX(stats.font, value)
