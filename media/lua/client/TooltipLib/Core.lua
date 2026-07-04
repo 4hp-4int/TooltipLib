@@ -928,6 +928,24 @@ function TooltipLib._log(msg)
     print("[TooltipLib] " .. tostring(msg))
 end
 
+--- Dev console probe: dump the last dressed real-pass ornament geometry
+--- (retained by the item hook in TooltipLib._lastGeom). Hover a tooltip,
+--- then run TooltipLib.gd() in the Lua console.
+function TooltipLib.gd()
+    local g = TooltipLib._lastGeom
+    if not g then print("[TooltipLib] gd: no geometry retained yet") return end
+    print(string.format(
+        "[TooltipLib] gd: rows=%d midX=%s vrx=%s startY=%s endY=%s ls=%s barH=%s",
+        #g.rows, tostring(g.midX), tostring(g.valueRightX), tostring(g.startY),
+        tostring(g.endY), tostring(g.lineSpacing), tostring(g.barH)))
+    for i = 1, #g.rows do
+        local r = g.rows[i]
+        print(string.format("  %d %s y=%s lw=%s vw=%s f=%s", i,
+            tostring(r.kind), tostring(r.y), tostring(r.labelW),
+            tostring(r.valueW), tostring(r.fraction)))
+    end
+end
+
 --- Log a warning. Always prints, even when debug is false.
 --- Use for non-fatal issues that operators should notice (e.g., hook install
 --- failures, missing PZ APIs). Unlike _debugLog, this is never silent.

@@ -569,7 +569,8 @@ local function InstallHook()
                         endYLayout, lineSpacing, width, padRight, layoutStats)
                 end)
                 -- Dev introspection: retain the last real-pass geometry so a
-                -- console probe can dump what the ornaments actually received.
+                -- console probe (TooltipLib.gd()) can dump what the ornaments
+                -- actually received.
                 if geom and not measureOnly then
                     TooltipLib._lastGeom = geom
                 end
