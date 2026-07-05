@@ -40,38 +40,41 @@ end
 --- the final (post-render) height.
 local function fillFromProviders(tooltip, layout, item)
     TooltipLib._starlitAccent = nil
+    TooltipLib._starlitDressed = false
     if not (item and layout) then return end
 
-    local providers = TooltipLib._getProvidersForTarget("item")
-    if not providers or #providers == 0 then return end
-
-    local detailHeld = false
-    pcall(function() detailHeld = TooltipLib._readDetailKey() end)
-
-    local active = TooltipLib._evaluateProviders(providers, detailHeld, item)
-    if not active then return end
-
+    -- Run our active item providers INTO Starlit's layout (if any). The skin
+    -- and accent below run regardless — an item with only vanilla + Starlit
+    -- content still wears the kraft card when the skin is on (consistency).
     local accentState = { color = nil }
-    for i = 1, #active do
-        local p = active[i]
-        -- Starlit already added the vanilla rows via DoTooltipEmbedded; a
-        -- full-card claimer would re-emit them = duplicate. Stand it down.
-        if not p.replacesVanilla and type(p.callback) == "function" then
-            local ctx = setmetatable({
-                item = item,
-                tooltip = tooltip,
-                detail = detailHeld,
-                surface = "item",
-                layout = layout,
-                helpers = TooltipLib.Helpers,
-                _accentState = accentState,
-                _sectionState = freshSectionState(),
-            }, TooltipLib._ContextMT)
-            local ok, err = pcall(p.callback, ctx)
-            if not ok then
-                TooltipLib._log("Provider '" .. tostring(p.id) ..
-                    "' callback error under Starlit adapter: " .. tostring(err))
-                TooltipLib._recordError(p.id)
+    local providers = TooltipLib._getProvidersForTarget("item")
+    if providers and #providers > 0 then
+        local detailHeld = false
+        pcall(function() detailHeld = TooltipLib._readDetailKey() end)
+        local active = TooltipLib._evaluateProviders(providers, detailHeld, item)
+        if active then
+            for i = 1, #active do
+                local p = active[i]
+                -- Starlit already added the vanilla rows via DoTooltipEmbedded;
+                -- a full-card claimer would re-emit them = duplicate. Stand down.
+                if not p.replacesVanilla and type(p.callback) == "function" then
+                    local ctx = setmetatable({
+                        item = item,
+                        tooltip = tooltip,
+                        detail = detailHeld,
+                        surface = "item",
+                        layout = layout,
+                        helpers = TooltipLib.Helpers,
+                        _accentState = accentState,
+                        _sectionState = freshSectionState(),
+                    }, TooltipLib._ContextMT)
+                    local ok, err = pcall(p.callback, ctx)
+                    if not ok then
+                        TooltipLib._log("Provider '" .. tostring(p.id) ..
+                            "' callback error under Starlit adapter: " .. tostring(err))
+                        TooltipLib._recordError(p.id)
+                    end
+                end
             end
         end
     end
@@ -79,6 +82,44 @@ local function fillFromProviders(tooltip, layout, item)
     -- accent is declared during the callback; the Hook's render early-path
     -- draws the classic line at the tooltip's final height
     TooltipLib._starlitAccent = accentState.color
+
+    -- OPTIONAL SKIN (mixedDress on): paint the registered dress's card body
+    -- under Starlit's text. The real pass is the one window where the size
+    -- is known (from the measure pass that ran first) and layout:render
+    -- hasn't drawn text yet — so the kraft card lands UNDER everything, at
+    -- the right size, with no patch to Starlit. Body + accent rail only:
+    -- ornaments need row geometry we can't reconstruct here. Hook's early-
+    -- path suppresses vanilla's box + skips the separate accent line when
+    -- the skin is on (the rail carries the accent).
+    if TooltipLib._starlitSkinWanted and TooltipLib._starlitSkinWanted() then
+        local measuring = true
+        pcall(function() measuring = tooltip:isMeasureOnly() end)
+        local spec = TooltipLib._panelDress
+        if not measuring and spec and type(spec.draw) == "function" then
+            local w, h
+            pcall(function() w = tooltip:getWidth(); h = tooltip:getHeight() end)
+            if w and h and w > 0 and h > 0 then
+                local ok = pcall(spec.draw, nil, tooltip, w, h, "item", accentState.color)
+                if ok then TooltipLib._starlitDressed = true end
+            end
+        end
+    end
+end
+
+--- Is the kraft skin wanted under Starlit? mixedDress option ON and a dress
+--- registered whose active() (if any) passes. Default OFF = clean Starlit
+--- card with our data (the consistent default the user settled on).
+function TooltipLib._starlitSkinWanted()
+    if not (TooltipLib._mixedDressAllowed and TooltipLib._mixedDressAllowed()) then
+        return false
+    end
+    local spec = TooltipLib._panelDress
+    if not spec then return false end
+    if spec.active then
+        local ok, on = pcall(spec.active)
+        if not ok or not on then return false end
+    end
+    return true
 end
 
 --- Install: register on Starlit's event if present. Idempotent; safe when

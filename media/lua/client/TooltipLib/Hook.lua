@@ -897,12 +897,35 @@ local function InstallHook()
         -- captured, at the now-final height.
         if TooltipLib._starlitAdapter and item then
             TooltipLib._starlitAccent = nil
+            TooltipLib._starlitDressed = false
+            -- suppress vanilla's flat box when we intend to skin: the kraft
+            -- card (painted in the event, under the text) is the background,
+            -- and the square vanilla box would peek behind its rounded
+            -- corners (the same reason the owned path zeroes these). Only
+            -- when the skin is actually wanted; restored right after.
+            local skinning = TooltipLib._starlitSkinWanted and TooltipLib._starlitSkinWanted()
+            local supBgA, supBdA
+            if skinning then
+                pcall(function()
+                    if self.backgroundColor then supBgA = self.backgroundColor.a; self.backgroundColor.a = 0 end
+                    if self.borderColor then supBdA = self.borderColor.a; self.borderColor.a = 0 end
+                end)
+            end
             local ok, err = pcall(original_render, self)
+            if supBgA ~= nil or supBdA ~= nil then
+                pcall(function()
+                    if supBgA ~= nil then self.backgroundColor.a = supBgA end
+                    if supBdA ~= nil then self.borderColor.a = supBdA end
+                end)
+            end
             if not ok then
                 TooltipLib._logOnce("starlit_render_error",
                     "Render error under Starlit adapter: " .. tostring(err))
             end
-            if self.tooltip and TooltipLib._starlitAccent then
+            -- the dress's rail carries the accent when it painted; only draw
+            -- the separate classic line when we did NOT skin
+            if self.tooltip and TooltipLib._starlitAccent
+                and not TooltipLib._starlitDressed then
                 drawAccentLine(self.tooltip, TooltipLib._starlitAccent)
             end
             return

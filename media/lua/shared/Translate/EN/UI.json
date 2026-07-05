@@ -3,7 +3,7 @@
     "UI_TL_DetailKey": "Detail Modifier Key",
     "UI_TL_DetailKeyDesc": "Hold to show detailed tooltip information from providers that support it",
     "UI_TL_MixedDress": "Keep the tooltip skin alongside other tooltip frameworks (experimental)",
-    "UI_TL_MixedDressDesc": "When another tooltip framework (StarlitLibrary etc.) is active, tooltips it owns stay vanilla while others wear the skin - a mixed look. OFF (default): the skin stands down for the whole session the moment such a framework is detected, so every tooltip matches. All information is shown either way. The mixed look is EXPERIMENTAL: stacks of several tooltip mods can still collide visually; items whose tooltips thrash are automatically retired to plain vanilla.",
+    "UI_TL_MixedDressDesc": "When another tooltip framework (StarlitLibrary etc.) is active, tooltips it owns stay vanilla while others wear the skin - a mixed look. OFF (default): the skin stands down for the whole session the moment such a framework is detected, so every tooltip matches. All information is shown either way. With StarlitLibrary the mixed look also paints the tooltip skin (card body + accent) onto Starlit’s card. EXPERIMENTAL: stacks of several tooltip mods can still collide visually; items whose tooltips thrash are automatically retired to plain vanilla.",
     "UI_TL_ToggleDesc": "Enable or disable the '%1' tooltip provider",
 
     "Item Report": "Item Report"
