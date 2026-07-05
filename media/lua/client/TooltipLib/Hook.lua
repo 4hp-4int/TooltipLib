@@ -1175,6 +1175,17 @@ local function InstallHook()
             local postTooltipH = -1
             pcall(function() postTooltipH = self.tooltip:getHeight() end)
             local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
+            local memo = inv_deferMemo[itemId]
+            -- THRASH CLAMP: some stacks (render-replacer x deferrer x us)
+            -- report wildly different extents frame to frame — no append
+            -- base is trustworthy. After repeated large swings the item is
+            -- retired to clean vanilla for the session: stability beats
+            -- chrome (provider content is suppressed for it).
+            if memo and memo.dead then
+                inv_deferCachedH = 0
+                inv_deferCachedW = 0
+                return
+            end
             if laidOut then
                 -- a REAL foreign extent: recorded before our append runs,
                 -- remembered ACROSS hovers (hosts with per-item layout
@@ -1188,14 +1199,30 @@ local function InstallHook()
                     local ph = self:getHeight()
                     if ph and ph ~= prePanelH and ph > extent then extent = ph end
                 end)
-                if inv_deferMemo[itemId] == nil then
+                if memo == nil then
                     inv_deferMemoCount = inv_deferMemoCount + 1
                     if inv_deferMemoCount > 256 then
                         inv_deferMemo = {}
                         inv_deferMemoCount = 1
                     end
+                    memo = { h = extent, thrash = 0 }
+                    inv_deferMemo[itemId] = memo
+                else
+                    if math.abs(extent - memo.h) > math.max(24, memo.h * 0.3) then
+                        memo.thrash = (memo.thrash or 0) + 1
+                        if memo.thrash >= 3 then
+                            memo.dead = true
+                            TooltipLib._logOnce("deferred_thrash",
+                                "Deferred tooltip extents are thrashing (multiple " ..
+                                "tooltip mods fighting over the card) — appended " ..
+                                "content retired to plain vanilla for affected items.")
+                            inv_deferCachedH = 0
+                            inv_deferCachedW = 0
+                            return
+                        end
+                    end
+                    memo.h = extent
                 end
-                inv_deferMemo[itemId] = extent
             elseif not inv_deferMemo[itemId] then
                 -- This item has NEVER been seen laid out: an EHR-style
                 -- bypass — the foreign renderer draws its own panel and
@@ -1211,7 +1238,7 @@ local function InstallHook()
                 inv_deferCachedW = 0
                 return
             end
-            local inv_deferForeignH = inv_deferMemo[itemId]
+            local inv_deferForeignH = inv_deferMemo[itemId].h
             -- stale-height frames (incl. whole re-hovers under per-item-
             -- cached hosts) append from the remembered foreign extent
 
@@ -1592,20 +1619,41 @@ local function InstallHook()
                 local postTooltipH = -1
                 pcall(function() postTooltipH = self.tooltip:getHeight() end)
                 local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
+                local memo = slot_deferMemo[itemId]
+                if memo and memo.dead then
+                    slot_deferCachedH = 0
+                    slot_deferCachedW = 0
+                    return
+                end
                 if laidOut then
                     local extent = postTooltipH
                     pcall(function()
                         local ph = self:getHeight()
                         if ph and ph ~= prePanelH and ph > extent then extent = ph end
                     end)
-                    if slot_deferMemo[itemId] == nil then
+                    if memo == nil then
                         slot_deferMemoCount = slot_deferMemoCount + 1
                         if slot_deferMemoCount > 256 then
                             slot_deferMemo = {}
                             slot_deferMemoCount = 1
                         end
+                        memo = { h = extent, thrash = 0 }
+                        slot_deferMemo[itemId] = memo
+                    else
+                        if math.abs(extent - memo.h) > math.max(24, memo.h * 0.3) then
+                            memo.thrash = (memo.thrash or 0) + 1
+                            if memo.thrash >= 3 then
+                                memo.dead = true
+                                TooltipLib._logOnce("slot_deferred_thrash",
+                                    "ItemSlot deferred extents thrashing — appended " ..
+                                    "content retired for affected items.")
+                                slot_deferCachedH = 0
+                                slot_deferCachedW = 0
+                                return
+                            end
+                        end
+                        memo.h = extent
                     end
-                    slot_deferMemo[itemId] = extent
                 elseif not slot_deferMemo[itemId] then
                     TooltipLib._logOnce("slot_deferred_standdown",
                         "Foreign renderer bypassed the ObjectTooltip; " ..
@@ -1614,7 +1662,7 @@ local function InstallHook()
                     slot_deferCachedW = 0
                     return
                 end
-                local slot_deferForeignH = slot_deferMemo[itemId]
+                local slot_deferForeignH = slot_deferMemo[itemId].h
 
                 -- Dress-only frames: nothing to defer below foreign content
                 local deferProviders = activeProviders and stripReplacers(activeProviders)

@@ -5,7 +5,7 @@
 
 [h1]New[/h1]
 [list]
-[*][b]Consistency option.[/b] "Keep the tooltip skin alongside other tooltip frameworks" (default OFF). By default, the moment another tooltip framework is detected, any registered tooltip skin stands down for the whole session so every tooltip matches. Turn it ON for the mixed look — skinned where TooltipLib owns the card, vanilla where the other framework does. All information is shown either way.
+[*][b]Consistency option.[/b] "Keep the tooltip skin alongside other tooltip frameworks (experimental)" (default OFF). By default, the moment another tooltip framework is detected, any registered tooltip skin stands down for the whole session so every tooltip matches. Turn it ON for the mixed look — skinned where TooltipLib owns the card, vanilla where the other framework does. All information is shown either way.
 [/list]
 
 [h1]Bug Fixes[/h1]
@@ -16,6 +16,11 @@
 [*][b]Accent colour is consistent.[/b] Under another framework the accent line spans the whole card, every frame — it no longer appeared for a frame and vanished.
 [*][b]Detail mode toggles cleanly.[/b] Holding and releasing the detail key resized the card, but the skin drew last frame's size for a frame on every change — a visible strobe while toggling. Card and extension sizing now track the detail state exactly.
 [*][b]No boxless flash.[/b] The vanilla tooltip box is never suppressed on a card TooltipLib hasn't proven it owns; a one-frame boxless flash on first hover under other frameworks is gone.
+[/list]
+
+[h1]Known limits[/h1]
+[list]
+[*][b]The mixed look is experimental.[/b] Stacks of several tooltip mods fighting over one card (a stats mod + a tooltip framework + TooltipLib) can still collide visually in mixed mode. Items whose tooltip extents thrash are automatically retired to plain vanilla for the session — stability over chrome. The default (consistency) is unaffected.
 [/list]
 
 [h1]Compatibility[/h1]
