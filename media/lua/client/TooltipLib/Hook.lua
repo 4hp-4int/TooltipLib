@@ -840,6 +840,23 @@ local function InstallHook()
     -- Deferred mode: cached dimensions from previous frame
     local inv_deferCachedH = 0
     local inv_deferCachedW = 0
+    -- Deferred per-hover state: the last REAL foreign height and whether
+    -- this item's hover has ever seen the tooltip laid out. A legit host
+    -- that measures ONCE per hover (draws text every frame, touches height
+    -- only when the item changes) is indistinguishable from an EHR-style
+    -- bypass by the old same-ref+same-height heuristic — the height it
+    -- leaves untouched is OUR OWN last write, so we stood down and the
+    -- append flapped on/off (the field-reported erratic accent).
+    local inv_deferItemId = nil
+    local inv_deferForeignH = 0
+    local inv_deferSawLayout = false
+    -- Owned-path dress height memory: the dress draws at real-pass START,
+    -- before late growers (mods that skip the measure pass and append rows
+    -- + height during the real DoTooltip) extend the tooltip — the card
+    -- under-covered and their rows sat on empty space. Remember last
+    -- frame's FINAL height per item; the dress covers max(now, remembered).
+    local inv_dressHItemId = nil
+    local inv_dressFinalH = 0
     -- Ownership memory: the item id whose render last fired OUR DoTooltip
     -- wrapper. The dress suppresses the vanilla box only for an item we
     -- PROVED we own — assuming ownership suppressed the box one frame before
@@ -970,7 +987,17 @@ local function InstallHook()
             -- frame catch-up is invisible).
             if dressSpec then
                 local dressAccent = (inv_accentId == itemId) and inv_accentColor or nil
-                TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "item", dressAccent)
+                local dw, dh
+                pcall(function()
+                    dw = tooltip:getWidth()
+                    dh = tooltip:getHeight()
+                end)
+                -- cover late growers: last frame's final height wins when
+                -- larger (one-frame catch-up on first hover, like accents)
+                if dh and inv_dressHItemId == itemId and inv_dressFinalH > dh then
+                    dh = inv_dressFinalH
+                end
+                TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, "item", dressAccent)
             end
             if activeProviders then
                 local accent, geom = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
@@ -1102,28 +1129,42 @@ local function InstallHook()
             -- and stop suppressing the vanilla box it builds on (next frame).
             inv_ownedItemId = nil
 
-            -- Stand-down guard (anti-runaway): if the ObjectTooltip was NOT
-            -- touched during the render chain (same reference AND same height),
-            -- the foreign renderer bypassed it entirely and drew its own panel.
-            -- There is no foreign ObjectTooltip content to append below, and
-            -- deferring would read back the height we set last frame → grow
-            -- without bound. Leave the foreign render intact and add nothing.
-            -- Legit deferred hosts (Starlit, AMS) re-render self.tooltip every
-            -- frame, so its height changes from our prior write → not detected.
-            if self.tooltip == preTooltip then
-                local postTooltipH = -1
-                pcall(function() postTooltipH = self.tooltip:getHeight() end)
-                if postTooltipH == preTooltipH then
-                    TooltipLib._logOnce("deferred_standdown",
-                        "Foreign renderer replaced ISToolTipInv.render and drew " ..
-                        "its own panel (bypassed the ObjectTooltip). Standing " ..
-                        "down to prevent unbounded tooltip growth; provider " ..
-                        "content is suppressed for items it fully owns.")
-                    inv_deferCachedH = 0
-                    inv_deferCachedW = 0
-                    return
-                end
+            -- Per-hover defer state: reset on item change
+            if itemId ~= inv_deferItemId then
+                inv_deferItemId = itemId
+                inv_deferSawLayout = false
+                inv_deferForeignH = 0
+                inv_deferCachedH = 0
+                inv_deferCachedW = 0
             end
+
+            -- Layout detection: the chain touched the tooltip this frame
+            -- (new reference, or height changed from the pre-chain snapshot).
+            local postTooltipH = -1
+            pcall(function() postTooltipH = self.tooltip:getHeight() end)
+            local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
+            if laidOut then
+                -- a REAL foreign extent: recorded before our append runs
+                inv_deferSawLayout = true
+                inv_deferForeignH = postTooltipH
+            elseif not inv_deferSawLayout then
+                -- Never laid out during this hover: an EHR-style bypass —
+                -- the foreign renderer draws its own panel and never touches
+                -- the ObjectTooltip. Appending would draw at a dead panel's
+                -- coords and read back our own writes (unbounded growth).
+                TooltipLib._logOnce("deferred_standdown",
+                    "Foreign renderer replaced ISToolTipInv.render and drew " ..
+                    "its own panel (bypassed the ObjectTooltip). Standing " ..
+                    "down to prevent unbounded tooltip growth; provider " ..
+                    "content is suppressed for items it fully owns.")
+                inv_deferCachedH = 0
+                inv_deferCachedW = 0
+                return
+            end
+            -- else: a once-per-hover measurer left the height at OUR last
+            -- write — append from the REMEMBERED foreign extent, same as a
+            -- laid-out frame (the old heuristic stood down here and the
+            -- append flapped on/off between measure frames)
 
             -- Dress-only frames have no provider content to append below the
             -- foreign framework's output — nothing to defer. Ditto when only
@@ -1143,7 +1184,7 @@ local function InstallHook()
                 "align with vanilla tooltip rows.")
             local tooltip = self.tooltip
             local padBottom = tooltip.padBottom or 5
-            local foreignH = tooltip:getHeight()
+            local foreignH = inv_deferForeignH
             local foreignW = tooltip:getWidth()
             local deferStartY = foreignH - padBottom
 
@@ -1181,7 +1222,14 @@ local function InstallHook()
             -- Our wrapper fired: this item is proven ours (arm the dress's
             -- vanilla-box suppression for it). Render-chain errors leave the
             -- memory untouched.
-            if ourWrapperFired then inv_ownedItemId = itemId end
+            if ourWrapperFired then
+                inv_ownedItemId = itemId
+                -- final height AFTER the whole chain (late growers included)
+                -- feeds next frame's dress coverage
+                inv_dressHItemId = itemId
+                inv_dressFinalH = 0
+                pcall(function() inv_dressFinalH = self.tooltip:getHeight() end)
+            end
             inv_deferCachedH = 0
             inv_deferCachedW = 0
         end
@@ -1215,6 +1263,12 @@ local function InstallHook()
         -- Deferred mode: cached dimensions from previous frame
         local slot_deferCachedH = 0
         local slot_deferCachedW = 0
+        -- per-hover defer state + dress height memory (see ISToolTipInv hook)
+        local slot_deferItemId = nil
+        local slot_deferForeignH = 0
+        local slot_deferSawLayout = false
+        local slot_dressHItemId = nil
+        local slot_dressFinalH = 0
         -- Ownership memory (see ISToolTipInv hook): suppression only for an
         -- item id whose render fired our wrapper — never assumed.
         local slot_ownedItemId = nil
@@ -1360,7 +1414,15 @@ local function InstallHook()
                 -- Dress first, real pass only (see ISToolTipInv hook)
                 if dressSpec then
                     local dressAccent = (slot_accentId == itemId) and slot_accentColor or nil
-                    TooltipLib._drawPanelDress(dressSpec, self, tooltip, nil, nil, "itemSlot", dressAccent)
+                    local dw, dh
+                    pcall(function()
+                        dw = tooltip:getWidth()
+                        dh = tooltip:getHeight()
+                    end)
+                    if dh and slot_dressHItemId == itemId and slot_dressFinalH > dh then
+                        dh = slot_dressFinalH
+                    end
+                    TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, "itemSlot", dressAccent)
                 end
                 if activeProviders then
                     local accent, geom = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
@@ -1452,18 +1514,28 @@ local function InstallHook()
             if not ourSlotWrapperFired and renderOk and self.tooltip then
                 slot_ownedItemId = nil
 
-                -- Stand-down guard (anti-runaway) — see ISToolTipInv hook.
-                if self.tooltip == preTooltip then
-                    local postTooltipH = -1
-                    pcall(function() postTooltipH = self.tooltip:getHeight() end)
-                    if postTooltipH == preTooltipH then
-                        TooltipLib._logOnce("slot_deferred_standdown",
-                            "Foreign renderer bypassed the ObjectTooltip; " ..
-                            "standing down to prevent unbounded tooltip growth.")
-                        slot_deferCachedH = 0
-                        slot_deferCachedW = 0
-                        return
-                    end
+                -- Per-hover defer state + layout detection — see the
+                -- ISToolTipInv hook for the full reasoning.
+                if itemId ~= slot_deferItemId then
+                    slot_deferItemId = itemId
+                    slot_deferSawLayout = false
+                    slot_deferForeignH = 0
+                    slot_deferCachedH = 0
+                    slot_deferCachedW = 0
+                end
+                local postTooltipH = -1
+                pcall(function() postTooltipH = self.tooltip:getHeight() end)
+                local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
+                if laidOut then
+                    slot_deferSawLayout = true
+                    slot_deferForeignH = postTooltipH
+                elseif not slot_deferSawLayout then
+                    TooltipLib._logOnce("slot_deferred_standdown",
+                        "Foreign renderer bypassed the ObjectTooltip; " ..
+                        "standing down to prevent unbounded tooltip growth.")
+                    slot_deferCachedH = 0
+                    slot_deferCachedW = 0
+                    return
                 end
 
                 -- Dress-only frames: nothing to defer below foreign content
@@ -1479,7 +1551,7 @@ local function InstallHook()
                     "using deferred layout.")
                 local tooltip = self.tooltip
                 local padBottom = tooltip.padBottom or 5
-                local foreignH = tooltip:getHeight()
+                local foreignH = slot_deferForeignH
                 local foreignW = tooltip:getWidth()
                 local deferStartY = foreignH - padBottom
 
@@ -1502,7 +1574,12 @@ local function InstallHook()
                 self:setHeight(slot_deferCachedH)
                 self:setWidth(slot_deferCachedW)
             else
-                if ourSlotWrapperFired then slot_ownedItemId = itemId end
+                if ourSlotWrapperFired then
+                    slot_ownedItemId = itemId
+                    slot_dressHItemId = itemId
+                    slot_dressFinalH = 0
+                    pcall(function() slot_dressFinalH = self.tooltip:getHeight() end)
+                end
                 slot_deferCachedH = 0
                 slot_deferCachedW = 0
             end
