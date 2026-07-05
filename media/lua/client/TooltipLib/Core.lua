@@ -781,6 +781,15 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 ---   active   function|nil polled once per tooltip render; return false to
 ---            stand down for that frame (vanilla box untouched) — e.g. when a
 ---            texture pack is missing or a user option is off.
+---   drawDeferred function|nil deferred-mode extension skin:
+---            drawDeferred(panel, foreignH, totalH, totalW, surface, accent).
+---            When a foreign tooltip framework owns the card (deferred mode),
+---            the dress never touches the foreign region — but TooltipLib
+---            appends provider content BELOW it, and this callback may paint
+---            that extension (panel-local: y = foreignH .. totalH) in the
+---            dress's material instead of the flat feathered rect. While it
+---            succeeds the classic accent line is skipped (the skin
+---            integrates the accent). Absent = flat extension as before.
 ---   surfaces table|nil   e.g. { item = true, object = true }; nil = all of
 ---            item / itemSlot / object.
 ---   ornaments function|nil (item/itemSlot) ornaments(panel, tooltip, geom,
@@ -895,6 +904,29 @@ function TooltipLib._drawPanelDress(spec, panel, tooltip, w, h, surface, accent)
     if not ok then
         TooltipLib._logOnce("panel_dress_error",
             "Panel dress '" .. tostring(spec.id) .. "' draw error — " ..
+            "dress cleared, vanilla box restored: " .. tostring(err))
+        TooltipLib._panelDress = nil
+        return false
+    end
+    return true
+end
+
+--- Invoke the dress's deferred-extension draw: the kraft-below-the-foreign-
+--- box path. In deferred mode a foreign framework owns the tooltip's own
+--- card — the dress may still skin the EXTENSION TooltipLib appends below it
+--- (spec.drawDeferred). An error clears the dress (same fail-open discipline
+--- as _drawPanelDress).
+---@return boolean drew  false = caller should draw the flat extension
+function TooltipLib._drawPanelDeferred(spec, panel, foreignH, totalH, totalW, surface, accent)
+    if not spec or type(spec.drawDeferred) ~= "function" then return false end
+    if type(totalH) ~= "number" or type(totalW) ~= "number"
+        or totalH <= foreignH or totalW <= 0 then
+        return false
+    end
+    local ok, err = pcall(spec.drawDeferred, panel, foreignH, totalH, totalW, surface, accent)
+    if not ok then
+        TooltipLib._logOnce("panel_deferred_error",
+            "Panel dress '" .. tostring(spec.id) .. "' drawDeferred error — " ..
             "dress cleared, vanilla box restored: " .. tostring(err))
         TooltipLib._panelDress = nil
         return false

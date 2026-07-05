@@ -817,10 +817,15 @@ local function InstallHook()
     -- Deferred mode: cached dimensions from previous frame
     local inv_deferCachedH = 0
     local inv_deferCachedW = 0
-    -- Foreign owner: a framework replaced DoTooltip (deferred or stand-down)
-    -- last frame — its panel builds on the vanilla box, so the dress must not
-    -- suppress it. Self-corrects the frame our wrapper fires again.
-    local inv_foreignOwner = false
+    -- Ownership memory: the item id whose render last fired OUR DoTooltip
+    -- wrapper. The dress suppresses the vanilla box only for an item we
+    -- PROVED we own — assuming ownership suppressed the box one frame before
+    -- discovering a foreign framework (StarlitLibrary-style hosts): a
+    -- boxless flash on every first hover, and again on every owned→foreign
+    -- transition in mixed sessions. Per-item (not a boolean latch) so mixed
+    -- ownership self-corrects per hover. Cost: one frame of vanilla box
+    -- UNDER the dress on each first owned hover, invisible in the fade-in.
+    local inv_ownedItemId = nil
     -- Accent channel cache: the dress paints before providers run, so it
     -- reads the accent THEY declared last frame (keyed by item id).
     local inv_accentId = nil
@@ -1023,7 +1028,7 @@ local function InstallHook()
         -- vanilla state. Skipped while a foreign framework owns the panel:
         -- its box IS the vanilla one we'd be blanking.
         local supBgA, supBdA
-        if dressSpec and not inv_foreignOwner then
+        if dressSpec and itemId == inv_ownedItemId then
             pcall(function()
                 if self.backgroundColor then
                     supBgA = self.backgroundColor.a
@@ -1072,7 +1077,7 @@ local function InstallHook()
         if not ourWrapperFired and renderOk and self.tooltip then
             -- A foreign framework owns this tooltip's panel: never dress it,
             -- and stop suppressing the vanilla box it builds on (next frame).
-            inv_foreignOwner = true
+            inv_ownedItemId = nil
 
             -- Stand-down guard (anti-runaway): if the ObjectTooltip was NOT
             -- touched during the render chain (same reference AND same height),
@@ -1115,14 +1120,24 @@ local function InstallHook()
             local foreignW = tooltip:getWidth()
             local deferStartY = foreignH - padBottom
 
-            -- Pre-draw background extension using previous frame's dimensions
+            -- Pre-draw the extension using previous frame's dimensions:
+            -- dressed (the skin's material below the foreign card) when the
+            -- dress offers drawDeferred, else the flat feathered rect.
             local bgW = math.max(foreignW, inv_deferCachedW)
-            drawDeferredBackground(self, foreignH, inv_deferCachedH, bgW)
+            local dressAccent = (inv_accentId == itemId) and inv_accentColor or nil
+            local extDressed = dressSpec and TooltipLib._drawPanelDeferred(
+                dressSpec, self, foreignH, inv_deferCachedH, bgW, "item", dressAccent)
+            if not extDressed then
+                drawDeferredBackground(self, foreignH, inv_deferCachedH, bgW)
+            end
 
             -- Render provider content on top of the background
             local accent = doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
                 "item", nil, nil, deferStartY, hasHiddenDetail)
-            drawAccentLine(tooltip, accent)
+            inv_accentId, inv_accentColor = itemId, accent
+            if not extDressed then
+                drawAccentLine(tooltip, accent)
+            end
 
             -- Cache total dimensions for next frame's background pre-draw
             inv_deferCachedH = tooltip:getHeight()
@@ -1132,9 +1147,10 @@ local function InstallHook()
             self:setHeight(inv_deferCachedH)
             self:setWidth(inv_deferCachedW)
         else
-            -- Our wrapper fired: the panel is ours again (re-arm the dress's
-            -- vanilla-box suppression). Render-chain errors leave the flag.
-            if ourWrapperFired then inv_foreignOwner = false end
+            -- Our wrapper fired: this item is proven ours (arm the dress's
+            -- vanilla-box suppression for it). Render-chain errors leave the
+            -- memory untouched.
+            if ourWrapperFired then inv_ownedItemId = itemId end
             inv_deferCachedH = 0
             inv_deferCachedW = 0
         end
@@ -1168,9 +1184,9 @@ local function InstallHook()
         -- Deferred mode: cached dimensions from previous frame
         local slot_deferCachedH = 0
         local slot_deferCachedW = 0
-        -- Foreign owner (see ISToolTipInv hook): don't dress / don't suppress
-        -- the vanilla box while a foreign framework owns the panel.
-        local slot_foreignOwner = false
+        -- Ownership memory (see ISToolTipInv hook): suppression only for an
+        -- item id whose render fired our wrapper — never assumed.
+        local slot_ownedItemId = nil
         -- Accent channel cache (see ISToolTipInv hook)
         local slot_accentId = nil
         local slot_accentColor = nil
@@ -1370,7 +1386,7 @@ local function InstallHook()
             -- Silence vanilla's flat box while the dress is on (see the
             -- ISToolTipInv hook for the reasoning + foreign-owner exception)
             local supBgA, supBdA
-            if dressSpec and not slot_foreignOwner then
+            if dressSpec and itemId == slot_ownedItemId then
                 pcall(function()
                     if self.backgroundColor then
                         supBgA = self.backgroundColor.a
@@ -1403,7 +1419,7 @@ local function InstallHook()
 
             -- Deferred path (same pattern as ISToolTipInv)
             if not ourSlotWrapperFired and renderOk and self.tooltip then
-                slot_foreignOwner = true
+                slot_ownedItemId = nil
 
                 -- Stand-down guard (anti-runaway) — see ISToolTipInv hook.
                 if self.tooltip == preTooltip then
@@ -1436,18 +1452,26 @@ local function InstallHook()
                 local deferStartY = foreignH - padBottom
 
                 local bgW = math.max(foreignW, slot_deferCachedW)
-                drawDeferredBackground(self, foreignH, slot_deferCachedH, bgW)
+                local dressAccent = (slot_accentId == itemId) and slot_accentColor or nil
+                local extDressed = dressSpec and TooltipLib._drawPanelDeferred(
+                    dressSpec, self, foreignH, slot_deferCachedH, bgW, "itemSlot", dressAccent)
+                if not extDressed then
+                    drawDeferredBackground(self, foreignH, slot_deferCachedH, bgW)
+                end
 
                 local accent = doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
                     "itemSlot", { itemSlot = itemSlotRef }, nil, deferStartY)
-                drawAccentLine(tooltip, accent)
+                slot_accentId, slot_accentColor = itemId, accent
+                if not extDressed then
+                    drawAccentLine(tooltip, accent)
+                end
 
                 slot_deferCachedH = tooltip:getHeight()
                 slot_deferCachedW = math.max(foreignW, tooltip:getWidth())
                 self:setHeight(slot_deferCachedH)
                 self:setWidth(slot_deferCachedW)
             else
-                if ourSlotWrapperFired then slot_foreignOwner = false end
+                if ourSlotWrapperFired then slot_ownedItemId = itemId end
                 slot_deferCachedH = 0
                 slot_deferCachedW = 0
             end
