@@ -1147,6 +1147,9 @@ local function InstallHook()
         if not ourWrapperFired and renderOk and self.tooltip then
             -- A foreign framework owns this tooltip's panel: never dress it,
             -- and stop suppressing the vanilla box it builds on (next frame).
+            -- Session flag: consistency mode (Core._resolvePanelDress) keys
+            -- off having EVER seen a foreign framework.
+            TooltipLib._deferrerSeen = true
             inv_ownedItemId = nil
 
             -- Extension-dim caches are per-hover: reset on item change
@@ -1550,6 +1553,7 @@ local function InstallHook()
 
             -- Deferred path (same pattern as ISToolTipInv)
             if not ourSlotWrapperFired and renderOk and self.tooltip then
+                TooltipLib._deferrerSeen = true
                 slot_ownedItemId = nil
 
                 -- Per-hover defer state + layout detection — see the

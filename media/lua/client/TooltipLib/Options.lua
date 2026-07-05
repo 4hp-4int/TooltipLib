@@ -32,6 +32,21 @@ local modOptions = PZAPI.ModOptions:create("TooltipLib", "UI_TL_ModName")
 modOptions:addKeyBind("detailKey", getText("UI_TL_DetailKey"), Keyboard.KEY_LSHIFT,
     "UI_TL_DetailKeyDesc")
 
+-- Consistency vs chrome under foreign tooltip frameworks: OFF (default) =
+-- the panel dress stands down for the session once a deferrer is detected,
+-- so every tooltip matches; ON = mixed look (owned tooltips dressed,
+-- foreign ones vanilla). Information is identical either way.
+modOptions:addTickBox("mixedDress", "UI_TL_MixedDress", false, "UI_TL_MixedDressDesc")
+
+--- Live gate read by _resolvePanelDress (Core).
+---@return boolean
+function TooltipLib._mixedDressAllowed()
+    local ok, v = pcall(function()
+        return PZAPI.ModOptions:getOptions("TooltipLib"):getOption("mixedDress"):getValue()
+    end)
+    return ok and (v and true or false)
+end
+
 --- Return the currently configured detail key code from ModOptions.
 ---@return number keyCode
 function TooltipLib._getDetailKeyCode()

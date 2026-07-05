@@ -866,6 +866,15 @@ end
 function TooltipLib._resolvePanelDress(surface)
     local spec = TooltipLib._panelDress
     if not spec then return nil end
+    -- CONSISTENCY MODE (default): once a foreign tooltip framework has been
+    -- seen this session (_deferrerSeen, set by the deferred branches), the
+    -- dress stands down everywhere so every tooltip matches — the mixed
+    -- owned-dressed / foreign-vanilla look is opt-in (TooltipLib option
+    -- 'mixedDress'). Information is identical either way.
+    if TooltipLib._deferrerSeen
+        and not (TooltipLib._mixedDressAllowed and TooltipLib._mixedDressAllowed()) then
+        return nil
+    end
     if spec.surfaces and not spec.surfaces[surface] then return nil end
     if spec.active then
         local ok, on = pcall(spec.active)

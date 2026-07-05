@@ -98,6 +98,12 @@ Works alongside mods that hook ISToolTipInv.render directly — deferred mode de
 [*] No persistent state, no save writes
 [/list]
 
+[b]Other tooltip frameworks[/b]
+
+TooltipLib coexists with tooltip frameworks that take over the card (StarlitLibrary and friends): their content renders untouched, and provider content from TooltipLib mods is appended below it, nothing lost. By default any tooltip skin stands down for the session when such a framework is detected, so every tooltip looks the same; an option ("Keep the tooltip skin alongside other tooltip frameworks") enables the mixed look instead.
+
+[hr][/hr]
+
 [b]Bug reports:[/b]
 [code]
 TooltipLib Version:
