@@ -857,6 +857,7 @@ local function InstallHook()
     -- frame's FINAL height per item; the dress covers max(now, remembered).
     local inv_dressHItemId = nil
     local inv_dressFinalH = 0
+    local inv_dressFinalW = 0
     -- Ownership memory: the item id whose render last fired OUR DoTooltip
     -- wrapper. The dress suppresses the vanilla box only for an item we
     -- PROVED we own — assuming ownership suppressed the box one frame before
@@ -994,8 +995,9 @@ local function InstallHook()
                 end)
                 -- cover late growers: last frame's final height wins when
                 -- larger (one-frame catch-up on first hover, like accents)
-                if dh and inv_dressHItemId == itemId and inv_dressFinalH > dh then
-                    dh = inv_dressFinalH
+                if inv_dressHItemId == itemId then
+                    if dh and inv_dressFinalH > dh then dh = inv_dressFinalH end
+                    if dw and inv_dressFinalW > dw then dw = inv_dressFinalW end
                 end
                 TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, "item", dressAccent)
             end
@@ -1227,8 +1229,11 @@ local function InstallHook()
                 -- final height AFTER the whole chain (late growers included)
                 -- feeds next frame's dress coverage
                 inv_dressHItemId = itemId
-                inv_dressFinalH = 0
-                pcall(function() inv_dressFinalH = self.tooltip:getHeight() end)
+                inv_dressFinalH, inv_dressFinalW = 0, 0
+                pcall(function()
+                    inv_dressFinalH = self.tooltip:getHeight()
+                    inv_dressFinalW = self.tooltip:getWidth()
+                end)
             end
             inv_deferCachedH = 0
             inv_deferCachedW = 0
@@ -1269,6 +1274,7 @@ local function InstallHook()
         local slot_deferSawLayout = false
         local slot_dressHItemId = nil
         local slot_dressFinalH = 0
+        local slot_dressFinalW = 0
         -- Ownership memory (see ISToolTipInv hook): suppression only for an
         -- item id whose render fired our wrapper — never assumed.
         local slot_ownedItemId = nil
@@ -1419,8 +1425,9 @@ local function InstallHook()
                         dw = tooltip:getWidth()
                         dh = tooltip:getHeight()
                     end)
-                    if dh and slot_dressHItemId == itemId and slot_dressFinalH > dh then
-                        dh = slot_dressFinalH
+                    if slot_dressHItemId == itemId then
+                        if dh and slot_dressFinalH > dh then dh = slot_dressFinalH end
+                        if dw and slot_dressFinalW > dw then dw = slot_dressFinalW end
                     end
                     TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, "itemSlot", dressAccent)
                 end
@@ -1577,8 +1584,11 @@ local function InstallHook()
                 if ourSlotWrapperFired then
                     slot_ownedItemId = itemId
                     slot_dressHItemId = itemId
-                    slot_dressFinalH = 0
-                    pcall(function() slot_dressFinalH = self.tooltip:getHeight() end)
+                    slot_dressFinalH, slot_dressFinalW = 0, 0
+                    pcall(function()
+                        slot_dressFinalH = self.tooltip:getHeight()
+                        slot_dressFinalW = self.tooltip:getWidth()
+                    end)
                 end
                 slot_deferCachedH = 0
                 slot_deferCachedW = 0
