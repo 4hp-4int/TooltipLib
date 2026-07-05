@@ -993,7 +993,19 @@ local function InstallHook()
                     dw = tooltip:getWidth()
                     dh = tooltip:getHeight()
                 end)
-                -- cover late growers: last frame's final height wins when
+                -- Cover the PANEL's declared extent too: render-replacers
+                -- (SWSP-style) size their extra stats region on the ISPanel
+                -- (self:setHeight(tooltipH + extra)) BEFORE the real
+                -- DoTooltip — the tooltip never learns about it, and their
+                -- own box is drawn from the very bg fields the dress
+                -- suppresses. The card must be the box for the whole panel.
+                pcall(function()
+                    local ph = self:getHeight()
+                    local pw = self:getWidth()
+                    if dh and ph and ph > dh then dh = ph end
+                    if dw and pw and pw > dw then dw = pw end
+                end)
+                -- cover late growers: last frame's final extent wins when
                 -- larger (one-frame catch-up on first hover, like accents)
                 if inv_dressHItemId == itemId then
                     if dh and inv_dressFinalH > dh then dh = inv_dressFinalH end
@@ -1231,8 +1243,8 @@ local function InstallHook()
                 inv_dressHItemId = itemId
                 inv_dressFinalH, inv_dressFinalW = 0, 0
                 pcall(function()
-                    inv_dressFinalH = self.tooltip:getHeight()
-                    inv_dressFinalW = self.tooltip:getWidth()
+                    inv_dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
+                    inv_dressFinalW = math.max(self.tooltip:getWidth(), self:getWidth() or 0)
                 end)
             end
             inv_deferCachedH = 0
@@ -1425,6 +1437,12 @@ local function InstallHook()
                         dw = tooltip:getWidth()
                         dh = tooltip:getHeight()
                     end)
+                    pcall(function()
+                        local ph = self:getHeight()
+                        local pw = self:getWidth()
+                        if dh and ph and ph > dh then dh = ph end
+                        if dw and pw and pw > dw then dw = pw end
+                    end)
                     if slot_dressHItemId == itemId then
                         if dh and slot_dressFinalH > dh then dh = slot_dressFinalH end
                         if dw and slot_dressFinalW > dw then dw = slot_dressFinalW end
@@ -1586,8 +1604,8 @@ local function InstallHook()
                     slot_dressHItemId = itemId
                     slot_dressFinalH, slot_dressFinalW = 0, 0
                     pcall(function()
-                        slot_dressFinalH = self.tooltip:getHeight()
-                        slot_dressFinalW = self.tooltip:getWidth()
+                        slot_dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
+                        slot_dressFinalW = math.max(self.tooltip:getWidth(), self:getWidth() or 0)
                     end)
                 end
                 slot_deferCachedH = 0
