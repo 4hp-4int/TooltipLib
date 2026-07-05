@@ -1,0 +1,23 @@
+[h1]TooltipLib v1.5.1[/h1]
+[i]Released: 2026-07-05[/i]
+
+[b]Coexistence patch: tooltips stay steady alongside other tooltip frameworks (StarlitLibrary and friends) and stat-adding mods, with a new consistency option.[/b]
+
+[h1]New[/h1]
+[list]
+[*][b]Consistency option.[/b] "Keep the tooltip skin alongside other tooltip frameworks" (default OFF). By default, the moment another tooltip framework is detected, any registered tooltip skin stands down for the whole session so every tooltip matches. Turn it ON for the mixed look — skinned where TooltipLib owns the card, vanilla where the other framework does. All information is shown either way.
+[/list]
+
+[h1]Bug Fixes[/h1]
+[list]
+[*][b]No more flip-flopping tooltips.[/b] With another tooltip framework installed, provider content and accent colours could appear on one hover and vanish on the next. TooltipLib now remembers each item's real card extent across hovers, so appended content and accents are there every time.
+[*][b]No more duplicated cards.[/b] Full-card providers (SauceTooltips' "Full card replacement") stand down under another tooltip framework instead of re-emitting the vanilla rows the framework already drew.
+[*][b]No more overlapping stats.[/b] Mods that size extra tooltip content on the panel (Show Weapon Stats Plus) are respected on both the owned and the deferred paths: skinned cards cover their stats region, and appended content starts below it.
+[*][b]Accent colour is consistent.[/b] Under another framework the accent line spans the whole card, every frame — it no longer appeared for a frame and vanished.
+[*][b]No boxless flash.[/b] The vanilla tooltip box is never suppressed on a card TooltipLib hasn't proven it owns; a one-frame boxless flash on first hover under other frameworks is gone.
+[/list]
+
+[h1]Compatibility[/h1]
+[list]
+[*][b]Save-safe, no API changes.[/b] Consumer mods need no updates. One additive dress field (drawDeferred) lets skins cover appended content under other frameworks.
+[/list]

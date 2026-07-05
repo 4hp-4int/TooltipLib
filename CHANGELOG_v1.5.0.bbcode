@@ -16,8 +16,6 @@
 [*][b]Full row takeover.[/b] Item providers may declare replacesVanilla=true to claim an item's vanilla tooltip rows entirely: TooltipLib skips the vanilla embed for that item, draws the name line itself, and the provider re-emits everything through the context API — the whole card becomes dressable. Built for SauceTooltips' VanillaCore.
 [*][b]Multi-line labels measure true.[/b] A single addLabel with embedded newlines now spans its real height in ornament geometry (this misaligned dressed cards for mods that pass multi-paragraph labels).
 [*][b]Debug probe.[/b] TooltipLib.gd() dumps the last real-pass ornament geometry to the console for dress authors.
-[*][b]Deferred-mode dressing, hardened.[/b] Under a foreign tooltip framework (StarlitLibrary-style hosts), TooltipLib appends provider content below the foreign card — a dress can skin that extension (spec.drawDeferred), the classic accent line spans the whole card every frame, foreign extents are remembered per item across hovers (hosts with layout caches no longer flap between appended and plain), full-card claimers stand down instead of duplicating vanilla's rows, and the vanilla box is never suppressed on a panel the dress hasn't proven it owns. Render-replacing mods that size their extra content on the panel (Show Weapon Stats Plus) get covered by the dress too.
-[*][b]Consistency setting.[/b] New option: "Keep the tooltip skin alongside other tooltip frameworks" (default OFF). By default, the moment another tooltip framework is detected the skin stands down for the whole session so every tooltip matches; turn it ON for the mixed look (dressed where owned, vanilla where foreign). All information is shown either way.
 [/list]
 
 [h1]Compatibility[/h1]
