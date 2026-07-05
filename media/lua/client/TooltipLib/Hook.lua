@@ -847,9 +847,15 @@ local function InstallHook()
     -- bypass by the old same-ref+same-height heuristic — the height it
     -- leaves untouched is OUR OWN last write, so we stood down and the
     -- append flapped on/off (the field-reported erratic accent).
-    local inv_deferItemId = nil
-    local inv_deferForeignH = 0
-    local inv_deferSawLayout = false
+    -- PERSISTENT per-item memo (survives re-hovers): a host that measures
+    -- once per item EVER (cached layout) never re-lays on a re-hover — a
+    -- single-slot memory reset on item change misread that as an EHR bypass
+    -- and stood the whole re-hover down (field report: accents present one
+    -- hover, gone the next). memo[itemId] = last REAL foreign extent.
+    -- Bounded: wiped past 256 entries (re-learning costs one frame).
+    local inv_deferMemo = {}
+    local inv_deferMemoCount = 0
+    local inv_deferLastId = nil
     -- Owned-path dress height memory: the dress draws at real-pass START,
     -- before late growers (mods that skip the measure pass and append rows
     -- + height during the real DoTooltip) extend the tooltip — the card
@@ -1143,11 +1149,9 @@ local function InstallHook()
             -- and stop suppressing the vanilla box it builds on (next frame).
             inv_ownedItemId = nil
 
-            -- Per-hover defer state: reset on item change
-            if itemId ~= inv_deferItemId then
-                inv_deferItemId = itemId
-                inv_deferSawLayout = false
-                inv_deferForeignH = 0
+            -- Extension-dim caches are per-hover: reset on item change
+            if itemId ~= inv_deferLastId then
+                inv_deferLastId = itemId
                 inv_deferCachedH = 0
                 inv_deferCachedW = 0
             end
@@ -1158,14 +1162,23 @@ local function InstallHook()
             pcall(function() postTooltipH = self.tooltip:getHeight() end)
             local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
             if laidOut then
-                -- a REAL foreign extent: recorded before our append runs
-                inv_deferSawLayout = true
-                inv_deferForeignH = postTooltipH
-            elseif not inv_deferSawLayout then
-                -- Never laid out during this hover: an EHR-style bypass —
-                -- the foreign renderer draws its own panel and never touches
-                -- the ObjectTooltip. Appending would draw at a dead panel's
-                -- coords and read back our own writes (unbounded growth).
+                -- a REAL foreign extent: recorded before our append runs,
+                -- remembered ACROSS hovers (hosts with per-item layout
+                -- caches never re-lay on a re-hover)
+                if inv_deferMemo[itemId] == nil then
+                    inv_deferMemoCount = inv_deferMemoCount + 1
+                    if inv_deferMemoCount > 256 then
+                        inv_deferMemo = {}
+                        inv_deferMemoCount = 1
+                    end
+                end
+                inv_deferMemo[itemId] = postTooltipH
+            elseif not inv_deferMemo[itemId] then
+                -- This item has NEVER been seen laid out: an EHR-style
+                -- bypass — the foreign renderer draws its own panel and
+                -- never touches the ObjectTooltip. Appending would draw at
+                -- a dead panel's coords and read back our own writes
+                -- (unbounded growth).
                 TooltipLib._logOnce("deferred_standdown",
                     "Foreign renderer replaced ISToolTipInv.render and drew " ..
                     "its own panel (bypassed the ObjectTooltip). Standing " ..
@@ -1175,10 +1188,9 @@ local function InstallHook()
                 inv_deferCachedW = 0
                 return
             end
-            -- else: a once-per-hover measurer left the height at OUR last
-            -- write — append from the REMEMBERED foreign extent, same as a
-            -- laid-out frame (the old heuristic stood down here and the
-            -- append flapped on/off between measure frames)
+            local inv_deferForeignH = inv_deferMemo[itemId]
+            -- stale-height frames (incl. whole re-hovers under per-item-
+            -- cached hosts) append from the remembered foreign extent
 
             -- Dress-only frames have no provider content to append below the
             -- foreign framework's output — nothing to defer. Ditto when only
@@ -1280,10 +1292,11 @@ local function InstallHook()
         -- Deferred mode: cached dimensions from previous frame
         local slot_deferCachedH = 0
         local slot_deferCachedW = 0
-        -- per-hover defer state + dress height memory (see ISToolTipInv hook)
-        local slot_deferItemId = nil
-        local slot_deferForeignH = 0
-        local slot_deferSawLayout = false
+        -- persistent per-item defer memo + dress extent memory (see the
+        -- ISToolTipInv hook for the full reasoning)
+        local slot_deferMemo = {}
+        local slot_deferMemoCount = 0
+        local slot_deferLastId = nil
         local slot_dressHItemId = nil
         local slot_dressFinalH = 0
         local slot_dressFinalW = 0
@@ -1541,10 +1554,8 @@ local function InstallHook()
 
                 -- Per-hover defer state + layout detection — see the
                 -- ISToolTipInv hook for the full reasoning.
-                if itemId ~= slot_deferItemId then
-                    slot_deferItemId = itemId
-                    slot_deferSawLayout = false
-                    slot_deferForeignH = 0
+                if itemId ~= slot_deferLastId then
+                    slot_deferLastId = itemId
                     slot_deferCachedH = 0
                     slot_deferCachedW = 0
                 end
@@ -1552,9 +1563,15 @@ local function InstallHook()
                 pcall(function() postTooltipH = self.tooltip:getHeight() end)
                 local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
                 if laidOut then
-                    slot_deferSawLayout = true
-                    slot_deferForeignH = postTooltipH
-                elseif not slot_deferSawLayout then
+                    if slot_deferMemo[itemId] == nil then
+                        slot_deferMemoCount = slot_deferMemoCount + 1
+                        if slot_deferMemoCount > 256 then
+                            slot_deferMemo = {}
+                            slot_deferMemoCount = 1
+                        end
+                    end
+                    slot_deferMemo[itemId] = postTooltipH
+                elseif not slot_deferMemo[itemId] then
                     TooltipLib._logOnce("slot_deferred_standdown",
                         "Foreign renderer bypassed the ObjectTooltip; " ..
                         "standing down to prevent unbounded tooltip growth.")
@@ -1562,6 +1579,7 @@ local function InstallHook()
                     slot_deferCachedW = 0
                     return
                 end
+                local slot_deferForeignH = slot_deferMemo[itemId]
 
                 -- Dress-only frames: nothing to defer below foreign content
                 local deferProviders = activeProviders and stripReplacers(activeProviders)
