@@ -100,7 +100,9 @@ Works alongside mods that hook ISToolTipInv.render directly — deferred mode de
 
 [b]Other tooltip frameworks[/b]
 
-TooltipLib coexists with tooltip frameworks that take over the card (StarlitLibrary and friends): their content renders untouched, and provider content from TooltipLib mods is appended below it, nothing lost. By default any tooltip skin stands down for the session when such a framework is detected, so every tooltip looks the same; an option ("Keep the tooltip skin alongside other tooltip frameworks") enables the mixed look instead.
+[b]StarlitLibrary:[/b] fully integrated. When Starlit owns the item card, TooltipLib feeds its providers' content directly into Starlit's tooltip — everything lines up in one card, no setup needed.
+
+Other tooltip frameworks that take over the card are handled too: their content renders untouched, and provider content is added alongside it, nothing lost. Any tooltip skin steps aside so cards stay consistent; an option enables the mixed look instead.
 
 [hr][/hr]
 

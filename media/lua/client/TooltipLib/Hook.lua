@@ -27,6 +27,7 @@ require "TooltipLib/Helpers"
 require "ISUI/ISToolTipInv"
 
 pcall(function() require "TooltipLib/Options" end)
+pcall(function() require "TooltipLib/StarlitAdapter" end)
 pcall(function() require "Entity/ISUI/Components/Crafting/ISToolTipItemSlot" end)
 
 -- B42.16 vanilla bug: getText("Item Report") has no prefix so it always fails.
@@ -885,6 +886,27 @@ local function InstallHook()
         local providers = TooltipLib._getProvidersForTarget("item")
 
         frameCounter = frameCounter + 1
+
+        -- StarlitLibrary native path: Starlit owns render and fires
+        -- onFillItemTooltip; our adapter feeds provider content into ITS
+        -- layout (StarlitAdapter.lua). We must NOT install our DoTooltip
+        -- wrapper or dress here — doing so would either steal the card from
+        -- Starlit (losing Starlit-mod content) or, when Starlit wins, staple
+        -- our content a SECOND time via the deferred path. Just run the
+        -- chain (the event fires inside it) and draw the accent the adapter
+        -- captured, at the now-final height.
+        if TooltipLib._starlitAdapter and item then
+            TooltipLib._starlitAccent = nil
+            local ok, err = pcall(original_render, self)
+            if not ok then
+                TooltipLib._logOnce("starlit_render_error",
+                    "Render error under Starlit adapter: " .. tostring(err))
+            end
+            if self.tooltip and TooltipLib._starlitAccent then
+                drawAccentLine(self.tooltip, TooltipLib._starlitAccent)
+            end
+            return
+        end
 
         -- Panel dress: resolved before the fast exits — a dress must engage
         -- on EVERY tooltip, including items no provider is active for.

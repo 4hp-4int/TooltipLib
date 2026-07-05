@@ -5,6 +5,7 @@
 
 [h1]New[/h1]
 [list]
+[*][b]Native StarlitLibrary integration.[/b] When StarlitLibrary is installed it owns the item card — and TooltipLib now feeds provider content straight into Starlit's own tooltip through its onFillItemTooltip hook, instead of stapling a second block below it. Everything lines up in one card, one render, no guesswork; accents draw over it. No setup — it just happens when both mods are present.
 [*][b]Consistency option.[/b] "Keep the tooltip skin alongside other tooltip frameworks (experimental)" (default OFF). By default, the moment another tooltip framework is detected, any registered tooltip skin stands down for the whole session so every tooltip matches. Turn it ON for the mixed look — skinned where TooltipLib owns the card, vanilla where the other framework does. All information is shown either way.
 [/list]
 
