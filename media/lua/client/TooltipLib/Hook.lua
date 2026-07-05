@@ -1090,6 +1090,8 @@ local function InstallHook()
         local preTooltip = self.tooltip
         local preTooltipH = -1
         if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
+        local prePanelH = -1
+        pcall(function() prePanelH = self:getHeight() end)
 
         -- While the dress is on, silence vanilla's flat box for this render:
         -- the bg fill and square border would peek out behind the dress's
@@ -1167,7 +1169,16 @@ local function InstallHook()
             if laidOut then
                 -- a REAL foreign extent: recorded before our append runs,
                 -- remembered ACROSS hovers (hosts with per-item layout
-                -- caches never re-lay on a re-hover)
+                -- caches never re-lay on a re-hover). SWSP-class mods size
+                -- their extra region on the PANEL — take the panel extent
+                -- too, but ONLY when the chain wrote it this frame (an
+                -- untouched panel height is OUR OWN last setHeight — using
+                -- it would creep the append downward every frame).
+                local extent = postTooltipH
+                pcall(function()
+                    local ph = self:getHeight()
+                    if ph and ph ~= prePanelH and ph > extent then extent = ph end
+                end)
                 if inv_deferMemo[itemId] == nil then
                     inv_deferMemoCount = inv_deferMemoCount + 1
                     if inv_deferMemoCount > 256 then
@@ -1175,7 +1186,7 @@ local function InstallHook()
                         inv_deferMemoCount = 1
                     end
                 end
-                inv_deferMemo[itemId] = postTooltipH
+                inv_deferMemo[itemId] = extent
             elseif not inv_deferMemo[itemId] then
                 -- This item has NEVER been seen laid out: an EHR-style
                 -- bypass — the foreign renderer draws its own panel and
@@ -1516,6 +1527,8 @@ local function InstallHook()
             local preTooltip = self.tooltip
             local preTooltipH = -1
             if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
+            local prePanelH = -1
+            pcall(function() prePanelH = self:getHeight() end)
 
             -- Silence vanilla's flat box while the dress is on (see the
             -- ISToolTipInv hook for the reasoning + foreign-owner exception)
@@ -1567,6 +1580,11 @@ local function InstallHook()
                 pcall(function() postTooltipH = self.tooltip:getHeight() end)
                 local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
                 if laidOut then
+                    local extent = postTooltipH
+                    pcall(function()
+                        local ph = self:getHeight()
+                        if ph and ph ~= prePanelH and ph > extent then extent = ph end
+                    end)
                     if slot_deferMemo[itemId] == nil then
                         slot_deferMemoCount = slot_deferMemoCount + 1
                         if slot_deferMemoCount > 256 then
@@ -1574,7 +1592,7 @@ local function InstallHook()
                             slot_deferMemoCount = 1
                         end
                     end
-                    slot_deferMemo[itemId] = postTooltipH
+                    slot_deferMemo[itemId] = extent
                 elseif not slot_deferMemo[itemId] then
                     TooltipLib._logOnce("slot_deferred_standdown",
                         "Foreign renderer bypassed the ObjectTooltip; " ..
