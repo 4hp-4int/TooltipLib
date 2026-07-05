@@ -14,6 +14,7 @@
 [*][b]No more duplicated cards.[/b] Full-card providers (SauceTooltips' "Full card replacement") stand down under another tooltip framework instead of re-emitting the vanilla rows the framework already drew.
 [*][b]No more overlapping stats.[/b] Mods that size extra tooltip content on the panel (Show Weapon Stats Plus) are respected on both the owned and the deferred paths: skinned cards cover their stats region, and appended content starts below it.
 [*][b]Accent colour is consistent.[/b] Under another framework the accent line spans the whole card, every frame — it no longer appeared for a frame and vanished.
+[*][b]Detail mode toggles cleanly.[/b] Holding and releasing the detail key resized the card, but the skin drew last frame's size for a frame on every change — a visible strobe while toggling. Card and extension sizing now track the detail state exactly.
 [*][b]No boxless flash.[/b] The vanilla tooltip box is never suppressed on a card TooltipLib hasn't proven it owns; a one-frame boxless flash on first hover under other frameworks is gone.
 [/list]
 

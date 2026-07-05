@@ -856,12 +856,14 @@ local function InstallHook()
     local inv_deferMemo = {}
     local inv_deferMemoCount = 0
     local inv_deferLastId = nil
+    local inv_deferLastDetail = false
     -- Owned-path dress height memory: the dress draws at real-pass START,
     -- before late growers (mods that skip the measure pass and append rows
     -- + height during the real DoTooltip) extend the tooltip — the card
     -- under-covered and their rows sat on empty space. Remember last
     -- frame's FINAL height per item; the dress covers max(now, remembered).
     local inv_dressHItemId = nil
+    local inv_dressHDetail = false
     local inv_dressFinalH = 0
     local inv_dressFinalW = 0
     -- Ownership memory: the item id whose render last fired OUR DoTooltip
@@ -1012,8 +1014,12 @@ local function InstallHook()
                     if dw and pw and pw > dw then dw = pw end
                 end)
                 -- cover late growers: last frame's final extent wins when
-                -- larger (one-frame catch-up on first hover, like accents)
-                if inv_dressHItemId == itemId then
+                -- larger (one-frame catch-up on first hover, like accents).
+                -- Keyed by item + DETAIL STATE: detail mode legitimately
+                -- resizes the card, and a single-slot memory drew the grown
+                -- card for a frame on every release — a strobe while
+                -- toggling (the detail-mode jank field report).
+                if inv_dressHItemId == itemId and inv_dressHDetail == detailHeld then
                     if dh and inv_dressFinalH > dh then dh = inv_dressFinalH end
                     if dw and inv_dressFinalW > dw then dw = inv_dressFinalW end
                 end
@@ -1154,9 +1160,12 @@ local function InstallHook()
             TooltipLib._deferrerSeen = true
             inv_ownedItemId = nil
 
-            -- Extension-dim caches are per-hover: reset on item change
-            if itemId ~= inv_deferLastId then
+            -- Extension-dim caches are per-hover AND per-detail-state:
+            -- reset on item change or detail toggle (detail legitimately
+            -- resizes the appended block)
+            if itemId ~= inv_deferLastId or detailHeld ~= inv_deferLastDetail then
                 inv_deferLastId = itemId
+                inv_deferLastDetail = detailHeld
                 inv_deferCachedH = 0
                 inv_deferCachedW = 0
             end
@@ -1267,6 +1276,7 @@ local function InstallHook()
                 -- final height AFTER the whole chain (late growers included)
                 -- feeds next frame's dress coverage
                 inv_dressHItemId = itemId
+                inv_dressHDetail = detailHeld
                 inv_dressFinalH, inv_dressFinalW = 0, 0
                 pcall(function()
                     inv_dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
@@ -1311,7 +1321,9 @@ local function InstallHook()
         local slot_deferMemo = {}
         local slot_deferMemoCount = 0
         local slot_deferLastId = nil
+        local slot_deferLastDetail = false
         local slot_dressHItemId = nil
+        local slot_dressHDetail = false
         local slot_dressFinalH = 0
         local slot_dressFinalW = 0
         -- Ownership memory (see ISToolTipInv hook): suppression only for an
@@ -1470,7 +1482,7 @@ local function InstallHook()
                         if dh and ph and ph > dh then dh = ph end
                         if dw and pw and pw > dw then dw = pw end
                     end)
-                    if slot_dressHItemId == itemId then
+                    if slot_dressHItemId == itemId and slot_dressHDetail == detailHeld then
                         if dh and slot_dressFinalH > dh then dh = slot_dressFinalH end
                         if dw and slot_dressFinalW > dw then dw = slot_dressFinalW end
                     end
@@ -1571,8 +1583,9 @@ local function InstallHook()
 
                 -- Per-hover defer state + layout detection — see the
                 -- ISToolTipInv hook for the full reasoning.
-                if itemId ~= slot_deferLastId then
+                if itemId ~= slot_deferLastId or detailHeld ~= slot_deferLastDetail then
                     slot_deferLastId = itemId
+                    slot_deferLastDetail = detailHeld
                     slot_deferCachedH = 0
                     slot_deferCachedW = 0
                 end
@@ -1642,6 +1655,7 @@ local function InstallHook()
                 if ourSlotWrapperFired then
                     slot_ownedItemId = itemId
                     slot_dressHItemId = itemId
+                    slot_dressHDetail = detailHeld
                     slot_dressFinalH, slot_dressFinalW = 0, 0
                     pcall(function()
                         slot_dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
