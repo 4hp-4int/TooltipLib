@@ -754,6 +754,29 @@ local function InstallHook()
         end)
     end
 
+    -- Deferred dispatch pre-filter: replacesVanilla providers RE-EMIT the
+    -- vanilla rows they claim — meaningful only on the owned path, where the
+    -- wrapper SKIPPED the vanilla embed for them. In deferred mode the
+    -- foreign chain already rendered vanilla's rows (our wrapper never
+    -- fired), so appending a claimer's re-emission duplicates the whole
+    -- card below the foreign one. Drop them; nil = nothing left to append.
+    local function stripReplacers(providers)
+        local filtered = nil
+        for i = 1, #providers do
+            if providers[i].replacesVanilla then
+                if not filtered then
+                    filtered = {}
+                    for j = 1, i - 1 do filtered[j] = providers[j] end
+                end
+            elseif filtered then
+                filtered[#filtered + 1] = providers[i]
+            end
+        end
+        local out = filtered or providers
+        if #out == 0 then return nil end
+        return out
+    end
+
     -- ================================================================
     -- Deferred mode background helper
     -- ================================================================
@@ -1103,8 +1126,12 @@ local function InstallHook()
             end
 
             -- Dress-only frames have no provider content to append below the
-            -- foreign framework's output — nothing to defer.
-            if not activeProviders then
+            -- foreign framework's output — nothing to defer. Ditto when only
+            -- replacesVanilla claimers are active: vanilla's rows already
+            -- rendered in the foreign card, re-emitting them would duplicate
+            -- the tooltip.
+            local deferProviders = activeProviders and stripReplacers(activeProviders)
+            if not deferProviders then
                 inv_deferCachedH = 0
                 inv_deferCachedW = 0
                 return
@@ -1132,7 +1159,7 @@ local function InstallHook()
             end
 
             -- Render provider content on top of the background
-            local accent = doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
+            local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
                 "item", nil, nil, deferStartY, hasHiddenDetail)
             inv_accentId, inv_accentColor = itemId, accent
             if not extDressed then
@@ -1436,7 +1463,8 @@ local function InstallHook()
                 end
 
                 -- Dress-only frames: nothing to defer below foreign content
-                if not activeProviders then
+                local deferProviders = activeProviders and stripReplacers(activeProviders)
+                if not deferProviders then
                     slot_deferCachedH = 0
                     slot_deferCachedW = 0
                     return
@@ -1459,7 +1487,7 @@ local function InstallHook()
                     drawDeferredBackground(self, foreignH, slot_deferCachedH, bgW)
                 end
 
-                local accent = doLayoutDispatch(self.item, tooltip, activeProviders, detailHeld,
+                local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
                     "itemSlot", { itemSlot = itemSlotRef }, nil, deferStartY)
                 slot_accentId, slot_accentColor = itemId, accent
                 if not extDressed then
