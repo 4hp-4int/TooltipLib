@@ -1159,12 +1159,16 @@ local function InstallHook()
             end
 
             -- Render provider content on top of the background
+            -- The classic accent line draws in deferred mode REGARDLESS of
+            -- the extension dress: it is the one chrome element that can
+            -- safely span the foreign card (a 2px overlay in the left
+            -- padding), so the accent stays consistent across the foreign
+            -- and appended regions instead of flickering between the flat
+            -- first frame (line) and dressed frames (no line).
             local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
                 "item", nil, nil, deferStartY, hasHiddenDetail)
             inv_accentId, inv_accentColor = itemId, accent
-            if not extDressed then
-                drawAccentLine(tooltip, accent)
-            end
+            drawAccentLine(tooltip, accent)
 
             -- Cache total dimensions for next frame's background pre-draw
             inv_deferCachedH = tooltip:getHeight()
@@ -1490,9 +1494,8 @@ local function InstallHook()
                 local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
                     "itemSlot", { itemSlot = itemSlotRef }, nil, deferStartY)
                 slot_accentId, slot_accentColor = itemId, accent
-                if not extDressed then
-                    drawAccentLine(tooltip, accent)
-                end
+                -- always: consistent accent across foreign + appended regions
+                drawAccentLine(tooltip, accent)
 
                 slot_deferCachedH = tooltip:getHeight()
                 slot_deferCachedW = math.max(foreignW, tooltip:getWidth())

@@ -787,9 +787,11 @@ TooltipLib._panelDress = TooltipLib._panelDress or nil
 ---            the dress never touches the foreign region — but TooltipLib
 ---            appends provider content BELOW it, and this callback may paint
 ---            that extension (panel-local: y = foreignH .. totalH) in the
----            dress's material instead of the flat feathered rect. While it
----            succeeds the classic accent line is skipped (the skin
----            integrates the accent). Absent = flat extension as before.
+---            dress's material instead of the flat feathered rect. The
+---            classic accent line still draws (full height, foreign card
+---            included) so accents stay consistent across both regions —
+---            the dress should NOT paint its own accent here. Absent = flat
+---            extension as before.
 ---   surfaces table|nil   e.g. { item = true, object = true }; nil = all of
 ---            item / itemSlot / object.
 ---   ornaments function|nil (item/itemSlot) ornaments(panel, tooltip, geom,
