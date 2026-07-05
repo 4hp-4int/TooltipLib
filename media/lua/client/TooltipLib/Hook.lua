@@ -276,6 +276,10 @@ local function InstallHook()
             ctx.surface = surfaceName
             ctx._accentState = accentState
             ctx._sectionState = sectionState
+            -- true when a dress with an ornaments hook will decorate this
+            -- card: providers that only want section headers WITH the
+            -- chrome (rules/leaders) can gate on it and stay flat otherwise.
+            ctx.ornamented = sectionState.dressed
             setmetatable(ctx, TooltipLib._ContextMT)
             if extraFields then
                 for k, v in pairs(extraFields) do

@@ -67,6 +67,7 @@ local function fillFromProviders(tooltip, layout, item)
                         helpers = TooltipLib.Helpers,
                         _accentState = accentState,
                         _sectionState = freshSectionState(),
+                        ornamented = false,   -- no ornament hook under Starlit
                     }, TooltipLib._ContextMT)
                     local ok, err = pcall(p.callback, ctx)
                     if not ok then
