@@ -71,6 +71,14 @@ end
 Events.OnGameStart.Add(snapshotAndClearBuggedFlags)
 
 local function InstallHook()
+    -- Idempotency: OnGameStart fires again on every save load within the same
+    -- process (the Lua VM is not reset). Without this guard we'd wrap
+    -- ISToolTipInv.render again on every reload, stacking N nested TooltipLib
+    -- wrappers and reshuffling render ownership relative to other tooltip mods
+    -- across reloads (a plausible "worked, then broke after a reload" trigger).
+    -- Wrap exactly once per VM.
+    if TooltipLib._itemHookInstalled then return end
+
     -- Boot-time probe: ISToolTipInv must exist with a render function
     if not ISToolTipInv or type(ISToolTipInv.render) ~= "function" then
         TooltipLib._warn("ISToolTipInv.render not found — hook not installed. " ..
@@ -860,6 +868,11 @@ local function InstallHook()
     -- Bounded: wiped past 256 entries (re-learning costs one frame).
     local inv_deferMemo = {}
     local inv_deferMemoCount = 0
+    -- Items for which StarlitLibrary's onFillItemTooltip never fired (another
+    -- mod owns the render and bypassed Starlit's wrapper). These are routed
+    -- through the safe deferred append path on subsequent frames.
+    local inv_starlitBypass = {}
+    local inv_starlitBypassCount = 0
     local inv_deferLastId = nil
     local inv_deferLastDetail = false
     -- Owned-path dress height memory: the dress draws at real-pass START,
@@ -899,9 +912,10 @@ local function InstallHook()
         -- our content a SECOND time via the deferred path. Just run the
         -- chain (the event fires inside it) and draw the accent the adapter
         -- captured, at the now-final height.
-        if TooltipLib._starlitAdapter and item then
+        if TooltipLib._starlitAdapter and item and not inv_starlitBypass[item:getID()] then
             TooltipLib._starlitAccent = nil
             TooltipLib._starlitDressed = false
+            TooltipLib._starlitFillFired = false
             -- suppress vanilla's flat box when we intend to skin: the kraft
             -- card (painted in the event, under the text) is the background,
             -- and the square vanilla box would peek behind its rounded
@@ -926,12 +940,39 @@ local function InstallHook()
                 TooltipLib._logOnce("starlit_render_error",
                     "Render error under Starlit adapter: " .. tostring(err))
             end
-            -- the dress's rail carries the accent when it painted; only draw
-            -- the separate classic line when we did NOT skin
-            if self.tooltip and TooltipLib._starlitAccent
-                and not TooltipLib._starlitDressed then
-                drawAccentLine(self.tooltip, TooltipLib._starlitAccent)
+            if TooltipLib._starlitFillFired then
+                -- Happy path: Starlit fired onFillItemTooltip and our adapter
+                -- added content into its layout. The dress's rail carries the
+                -- accent when it painted; else draw the separate classic line.
+                if self.tooltip and TooltipLib._starlitAccent
+                    and not TooltipLib._starlitDressed then
+                    drawAccentLine(self.tooltip, TooltipLib._starlitAccent)
+                end
+                return
             end
+            -- Starlit's onFillItemTooltip did NOT fire — another tooltip mod owns
+            -- ISToolTipInv.render and bypassed Starlit's wrapper, so the adapter
+            -- never ran and provider content would be silently lost. Mark this
+            -- item so subsequent frames route through the SAFE deferred append
+            -- path below (full growth/thrash protection). One frame without VPS
+            -- content, then it shows. (If TL isn't in the render chain at all,
+            -- this wrapper never runs and only load order — TL last — can help.)
+            local bypassId = item:getID()
+            if bypassId and not inv_starlitBypass[bypassId] then
+                inv_starlitBypassCount = inv_starlitBypassCount + 1
+                if inv_starlitBypassCount > 256 then
+                    inv_starlitBypass = {}; inv_starlitBypassCount = 1
+                end
+                inv_starlitBypass[bypassId] = true
+            end
+            TooltipLib._logOnce("starlit_fill_bypassed",
+                "StarlitLibrary present but onFillItemTooltip did not fire for an " ..
+                "item — another tooltip mod owns ISToolTipInv.render and bypassed " ..
+                "Starlit. Routing provider content through the deferred append path. " ..
+                "(If VPS tooltips still vanish, load TooltipLib last.)")
+            -- original_render already ran this frame; return now (one frame
+            -- without content). Next frame the gate above excludes this item,
+            -- so it takes the deferred path below WITHOUT double-rendering.
             return
         end
 
@@ -1365,6 +1406,7 @@ local function InstallHook()
     end
 
     TooltipLib._hookStatus.item = true
+    TooltipLib._itemHookInstalled = true   -- idempotency: don't re-wrap on reload
     TooltipLib._log("ISToolTipInv hook installed (" ..
         TooltipLib.getProviderCount("item") .. " item providers)")
 

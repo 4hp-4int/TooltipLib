@@ -69,8 +69,8 @@
 --   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
 
-local CURRENT_VERSION = "1.5.1"
-local CURRENT_VERSION_NUM = 11
+local CURRENT_VERSION = "1.5.2"
+local CURRENT_VERSION_NUM = 12
 
 -- Version guard: if a newer version is already loaded, do not replace it
 if TooltipLib and TooltipLib.VERSION_NUM

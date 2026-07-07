@@ -2,6 +2,18 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.5.2] — 2026-07-07
+
+### Fixed
+- **Cumulative circuit-breaker latch under StarlitLibrary** (blanked ALL of a consumer's tooltips for the session). `_recordSuccess` is called only on the owned/deferred render paths, never on the Starlit adapter path — so a provider that threw even occasionally under Starlit accumulated errors that no successful hover ever reset. After 10 it latched `disabled` for the whole Lua VM (surviving in-process save reloads), silently hiding every one of that provider's tooltips until a full restart. The Starlit adapter (`StarlitAdapter.fillFromProviders`) now calls `TooltipLib._recordSuccess(p.id)` after a successful provider callback, restoring the intended "10 **consecutive** errors" semantics (a good hover resets the count). Surfaced by VorpallySauced tooltips vanishing session-wide on StarlitLibrary + heavy-mod setups.
+- **Provider content silently lost when another tooltip mod owns the render.** Under StarlitLibrary, TooltipLib feeds provider content through Starlit's `onFillItemTooltip` event. If a *different* tooltip/UI mod (NeatUI/CleanUI-class) replaces `ISToolTipInv.render` outside Starlit so that event never fires, the adapter never ran and content just disappeared — no crash, no error, valid data. The Starlit branch now detects when `onFillItemTooltip` did **not** fire for an item (a `_starlitFillFired` flag set by the adapter, reset before the render chain) and routes that item through the **deferred append path** (with its full growth/thrash protection) on subsequent frames, so content shows anyway. Reachable only when TooltipLib's own render wrapper is in the chain; a one-line `starlit_fill_bypassed` diagnostic advises loading TooltipLib **last** when it is fully bypassed.
+- **Render-hook install is now idempotent.** `InstallHook` re-wrapped `ISToolTipInv.render` on every `OnGameStart` — and `OnGameStart` fires again on every save load within the same process (the Lua VM isn't reset). Each reload therefore stacked another TooltipLib wrapper and reshuffled render ownership relative to other tooltip mods across reloads — a plausible "tooltips worked, then broke after a reload" trigger. It now wraps exactly once per VM (`_itemHookInstalled` guard).
+
+## [1.5.1] — 2026-07-05
+
+### Added / Changed
+- **The coexistence patch** after 1.5.0. Native StarlitLibrary integration: when Starlit is present it owns the item card, and TooltipLib feeds provider content straight into Starlit's tooltip via its `onFillItemTooltip` hook (one card, one render, correct alignment) instead of stapling a second block below it. Adds an experimental "keep the tooltip skin alongside other tooltip frameworks" consistency option (default off — any registered skin stands down when another framework is detected so every tooltip matches). Fixes flip-flopping provider content/accents, duplicated cards, overlapping stats (Show Weapon Stats Plus), accent-line flicker, detail-toggle strobing, and a first-hover boxless flash under other frameworks. Chaotic multi-framework stacks that thrash a single card retire to plain vanilla for the session. (Full player-facing notes shipped on the Workshop; this entry backfills the source changelog.)
+
 ## [1.5.0] — 2026-07-02
 
 ### Added

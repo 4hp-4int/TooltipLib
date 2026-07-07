@@ -4,6 +4,18 @@ Player-facing changelog in plain language. BBCode-formatted so it can be pasted
 straight into the Steam Workshop "Change Notes" box on update. For the technical
 changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
+[b]v1.5.2[/b]
+[list]
+[*] Fixed: with StarlitLibrary installed, one misbehaving item could make a mod's tooltips disappear for the whole play session (until a full game restart). TooltipLib was counting errors without ever crediting the successful hovers in between, so it eventually switched that mod's tooltips off entirely — silently. A good hover now resets the count. (This was behind the "VorpallySauced descriptions gone after a reload" reports.)
+[*] Fixed: when another tooltip/UI mod takes over the item tooltip while StarlitLibrary is installed, provider content (like a weapon's upgrade info) could silently go missing. TooltipLib now notices when StarlitLibrary didn't get a chance to add the content and draws it a different way instead. If tooltips are still missing on a heavy mod list, try moving TooltipLib to the bottom of your load order.
+[*] Fixed: TooltipLib no longer re-hooks the tooltip every time you reload a save in the same session — that could shuffle which mod "owns" the tooltip and break things after a reload.
+[/list]
+
+[b]v1.5.1[/b]
+[list]
+[*] The coexistence update: TooltipLib now integrates natively with StarlitLibrary — provider content flows into Starlit's own tooltip as one clean card instead of a second block below it — and plays nicer alongside other tooltip frameworks and stat-adding mods (fixing flickering, duplicated, and overlapping tooltips). Added an optional "keep the tooltip skin alongside other frameworks" setting (off by default).
+[/list]
+
 [b]v1.5.0[/b]
 [list]
 [*] Added: tooltip content can now be organized into titled sections. Mods mark where a section starts ("NUTRITION", "CONDITION", ...) and TooltipLib draws the section heading with a divider rule — or, when a tooltip skin is active, hands the skin the exact row positions so it can draw its own section rules and dotted leader lines between labels and values, in its own art style.

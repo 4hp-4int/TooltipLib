@@ -39,6 +39,12 @@ end
 --- layout. Stashes the declared accent for the Hook render path to draw at
 --- the final (post-render) height.
 local function fillFromProviders(tooltip, layout, item)
+    -- Mark that Starlit's onFillItemTooltip actually reached us this render.
+    -- The Hook's Starlit branch resets this to false before running the render
+    -- chain; if it's still false afterward, another mod owned the render and
+    -- bypassed Starlit's wrapper, so the Hook falls back to a deferred append
+    -- rather than silently dropping provider content.
+    TooltipLib._starlitFillFired = true
     TooltipLib._starlitAccent = nil
     TooltipLib._starlitDressed = false
     if not (item and layout) then return end
@@ -74,6 +80,15 @@ local function fillFromProviders(tooltip, layout, item)
                         TooltipLib._log("Provider '" .. tostring(p.id) ..
                             "' callback error under Starlit adapter: " .. tostring(err))
                         TooltipLib._recordError(p.id)
+                    else
+                        -- Reset the circuit breaker on success, mirroring the
+                        -- owned render path (Hook.lua:502). WITHOUT this, the
+                        -- Starlit path only ever RECORDS errors — a provider
+                        -- that throws even occasionally accumulates cumulatively
+                        -- to ERROR_THRESHOLD and gets latched `disabled` for the
+                        -- whole Lua VM (surviving save-reloads), turning one bad
+                        -- hover into a permanent, all-items tooltip blackout.
+                        TooltipLib._recordSuccess(p.id)
                     end
                 end
             end
