@@ -1,0 +1,21 @@
+[h1]TooltipLib v1.5.2[/h1]
+
+[b]A stability release: one misbehaving item can no longer make a mod's tooltips disappear for the rest of your session.[/b]
+
+[h1]Fixed[/h1]
+[list]
+[*][b]A single bad item could switch off a mod's tooltips for the whole play session — silently.[/b] With StarlitLibrary installed, TooltipLib was counting a provider's errors without ever crediting the successful hovers in between, so it eventually decided that mod was broken and stopped drawing its tooltips entirely — no message, and it stayed off until a full game restart. A good hover now resets the count. [i]This was the mechanism behind the "VorpallySauced descriptions gone after a reload" reports.[/i]
+[*][b]Provider content could silently go missing when another UI mod owns the tooltip.[/b] When a second tooltip/UI mod takes over the item tooltip while StarlitLibrary is installed, a provider's content (like a weapon's upgrade info) could quietly fail to appear. TooltipLib now notices when StarlitLibrary never got a chance to add the content and draws it a different way instead.
+[*][b]Reloading a save no longer re-hooks the tooltip.[/b] TooltipLib used to re-install its tooltip hook every time you reloaded a save in the same session, which could shuffle which mod "owns" the tooltip and break things after a reload. It now hooks once.
+[/list]
+
+[h1]If tooltips are still missing[/h1]
+[list]
+[*]On a heavy mod list, try moving [b]TooltipLib to the bottom[/b] of your load order.
+[*]Pair this with [b]VorpallySauced 1.11.2+[/b], which carries the matching weapon-data fix.
+[/list]
+
+[h1]Compatibility[/h1]
+[list]
+[*][b]Drop-in.[/b] No API changes, no save data. Safe to update mid-save.
+[/list]

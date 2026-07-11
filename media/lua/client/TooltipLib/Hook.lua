@@ -904,6 +904,16 @@ local function InstallHook()
 
         frameCounter = frameCounter + 1
 
+        -- Guard: only hook InventoryItem. Vanilla reuses ISToolTipInv for
+        -- other subjects — ISFluidBar:activateToolTip passes a FluidContainer
+        -- (or ResourceFluid), which has no getID/DoTooltip-item API; calling
+        -- one is a nil-call that escapes pcall and logs every rendered frame.
+        -- Same rule as the ISToolTipItemSlot hook below.
+        if item and not instanceof(item, "InventoryItem") then
+            original_render(self)
+            return
+        end
+
         -- StarlitLibrary native path: Starlit owns render and fires
         -- onFillItemTooltip; our adapter feeds provider content into ITS
         -- layout (StarlitAdapter.lua). We must NOT install our DoTooltip

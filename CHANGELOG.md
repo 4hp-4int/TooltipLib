@@ -2,7 +2,10 @@
 
 All notable changes to TooltipLib are documented here.
 
-## [1.5.2] — 2026-07-07
+## [1.5.3] — 2026-07-11
+
+### Fixed
+- **Error spam hovering the liquid tiles in the fluid-details panel** (with StarlitLibrary installed): `Object tried to call nil in render (Hook.lua:915)` every rendered frame. Vanilla reuses `ISToolTipInv` for non-item subjects — `ISFluidBar:activateToolTip` passes a **FluidContainer** (or ResourceFluid) as the tooltip's item — and the render wrapper's Starlit gate read `item:getID()` before any subject-type check; FluidContainer has no `getID`, and a nil-call escapes Kahlua's `pcall`. The wrapper now hands any non-`InventoryItem` subject straight back to vanilla, the same guard the `ISToolTipItemSlot` hook already had. Regression-locked in the kit (`test_tooltiplib_dress.lua`: `non_item_subject_*`), including a repro of the exact Starlit-gate crash.
 
 ### Fixed
 - **Cumulative circuit-breaker latch under StarlitLibrary** (blanked ALL of a consumer's tooltips for the session). `_recordSuccess` is called only on the owned/deferred render paths, never on the Starlit adapter path — so a provider that threw even occasionally under Starlit accumulated errors that no successful hover ever reset. After 10 it latched `disabled` for the whole Lua VM (surviving in-process save reloads), silently hiding every one of that provider's tooltips until a full restart. The Starlit adapter (`StarlitAdapter.fillFromProviders`) now calls `TooltipLib._recordSuccess(p.id)` after a successful provider callback, restoring the intended "10 **consecutive** errors" semantics (a good hover resets the count). Surfaced by VorpallySauced tooltips vanishing session-wide on StarlitLibrary + heavy-mod setups.

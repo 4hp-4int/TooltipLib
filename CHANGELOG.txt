@@ -4,6 +4,11 @@ Player-facing changelog in plain language. BBCode-formatted so it can be pasted
 straight into the Steam Workshop "Change Notes" box on update. For the technical
 changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
+[b]v1.5.3[/b]
+[list]
+[*] Fixed: with StarlitLibrary installed, hovering the liquid tiles in a container's fluid-details panel spammed the console with errors every frame. The game reuses the item tooltip for those tiles with a fluid (not an item) behind it, and TooltipLib assumed an item. It now steps aside and lets the game draw those tooltips itself.
+[/list]
+
 [b]v1.5.2[/b]
 [list]
 [*] Fixed: with StarlitLibrary installed, one misbehaving item could make a mod's tooltips disappear for the whole play session (until a full game restart). TooltipLib was counting errors without ever crediting the successful hovers in between, so it eventually switched that mod's tooltips off entirely — silently. A good hover now resets the count. (This was behind the "VorpallySauced descriptions gone after a reload" reports.)

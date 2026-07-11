@@ -1,0 +1,15 @@
+[h1]TooltipLib v1.5.3 — fluid-panel hotfix[/h1]
+[i]Released: 2026-07-11[/i]
+
+[b]Stops the error spam when hovering the liquid tiles in a container's fluid-details panel (with StarlitLibrary installed).[/b]
+
+[h1]Fixed[/h1]
+[list]
+[*][b]Error spam on the fluid-details panel's liquid tiles.[/b] Right-click a liquid container, open its liquid details, hover a liquid tile: with StarlitLibrary in the mod list, the console logged [i]Object tried to call nil in render[/i] every frame. The game reuses the item tooltip for those tiles with a fluid (not an item) behind it; TooltipLib assumed an item and asked it item questions. It now steps aside and lets the game draw fluid tooltips itself — same look as vanilla, no errors.
+[/list]
+
+[h1]Notes[/h1]
+[list]
+[*]Save-safe; SP and MP safe (client-local). No settings changed.
+[*]Fully quit to desktop and relaunch after updating — the game only loads mod code at startup.
+[/list]
