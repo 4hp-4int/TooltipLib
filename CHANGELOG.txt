@@ -4,6 +4,11 @@ Player-facing changelog in plain language. BBCode-formatted so it can be pasted
 straight into the Steam Workshop "Change Notes" box on update. For the technical
 changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
+[b]v1.5.4[/b]
+[list]
+[*] Fixed: game crash (stack overflow) the moment you hover an item, when certain other tooltip-modifying mods are installed — reported with Magic Accessories (and it's the same crash that mod has with Global Storage SiK). Some mods keep re-taking control of the item tooltip; depending on your load order, TooltipLib and that mod could end up handing the tooltip back and forth to each other forever. TooltipLib now notices the loop and breaks it — and the tooltip still draws complete, vanilla info plus every mod's added lines. Any load order works now.
+[/list]
+
 [b]v1.5.3[/b]
 [list]
 [*] Fixed: with StarlitLibrary installed, hovering the liquid tiles in a container's fluid-details panel spammed the console with errors every frame. The game reuses the item tooltip for those tiles with a fluid (not an item) behind it, and TooltipLib assumed an item. It now steps aside and lets the game draw those tooltips itself.

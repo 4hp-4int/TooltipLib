@@ -1,0 +1,16 @@
+[h1]TooltipLib v1.5.4 — crash hotfix[/h1]
+[i]Released: 2026-08-01[/i]
+
+[b]Stops a stack-overflow crash on item hover when certain other tooltip-modifying mods are installed (reported with Magic Accessories).[/b]
+
+[h1]Fixed[/h1]
+[list]
+[*][b]Game crash the moment you hover an item, with Magic Accessories (and mods like it) installed.[/b] Some mods keep re-taking control of the item tooltip during play. Depending on your load order, that mod and TooltipLib could each end up believing the other one is "next in line" — so hovering any item made them hand the tooltip back and forth to each other forever, until the game crashed with a stack overflow. TooltipLib now notices the loop and breaks it: the tooltip draws normally and completely — vanilla info plus every mod's added lines, including the other mod's own. Any load order works now.
+[/list]
+
+[h1]Notes[/h1]
+[list]
+[*]This was load-order dependent, which is why it hit some players and not others with the same mod list.
+[*]Save-safe; SP and MP safe (client-local). No settings changed.
+[*]Fully quit to desktop and relaunch after updating — the game only loads mod code at startup.
+[/list]

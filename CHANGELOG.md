@@ -2,6 +2,12 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.5.4] — 2026-08-01
+
+### Fixed
+- **Stack-overflow crash on item hover with "reclaiming" tooltip wrapper mods** (reported with *Magic Accessories*, WS 3760442018 — the same crash class it documents with *Global Storage SiK*, WS 3750612158). Mods that wrap `ISToolTipInv.render` with an "install late to win" reclaim loop (re-taking the slot on `OnGameStart`/`OnCreatePlayer`/periodic ticks, re-capturing whatever render is *current* as their fallback) can end up mutually chained with TooltipLib: when such a mod's first install runs before ours, our `InstallHook` captures **its** wrapper as `original_render`, then its reclaim captures **our** wrapper as its fallback — and the first hovered item recurses `A→B→A→…` without bound (its own re-entry guard delegates to its fallback, i.e. right back into the loop) until the VM stack overflows. Whether a given player crashed was a coin flip on mod-list order, and the other mod's suggested workaround ("TooltipLib at the bottom of the load order") is exactly the ordering that forms the cycle. Both the item and itemSlot hooks are now **depth-guarded**: re-entry on the same call stack is detected as a render-slot cycle and broken by calling the **boot-time render** (snapshotted at Hook.lua file load, before any `OnGameStart` patcher installs) instead of chaining. The outer invocation's `DoTooltip` wrapper is still armed on the item metatable at that point, so provider dispatch — including the reclaiming mod's own registered provider — still renders: the crash degrades to a normal, complete tooltip. One-line `render_cycle` diagnostic on first detection. Regression-locked in the kit (`test_tooltiplib_magicacc.lua`: real Hook.lua against a faithful reclaim-loop sim on Kahlua — pre-fix, 61 wrapper re-entries for a single render, vanilla never reached).
+- **Core self-reported version lagged mod.info** (`TooltipLib.VERSION` said 1.5.2 while mod.info shipped 1.5.3); both now read 1.5.4.
+
 ## [1.5.3] — 2026-07-11
 
 ### Fixed

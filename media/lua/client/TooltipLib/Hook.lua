@@ -30,6 +30,23 @@ pcall(function() require "TooltipLib/Options" end)
 pcall(function() require "TooltipLib/StarlitAdapter" end)
 pcall(function() require "Entity/ISUI/Components/Crafting/ISToolTipItemSlot" end)
 
+-- Boot-time render snapshots (render-slot cycle breaker).
+-- Some tooltip mods (MagicAccessories WS 3760442018, Global Storage SiK
+-- WS 3750612158) wrap ISToolTipInv.render with an "install late to win"
+-- reclaim loop: they periodically re-take the slot, re-capturing whatever
+-- render is CURRENT as their fallback. When such a mod's OnGameStart handler
+-- runs before ours, our InstallHook captures ITS wrapper as original_render,
+-- then its reclaim captures OUR wrapper as its fallback — the two functions
+-- now chain to each other and the first hovered item recurses without bound
+-- (stack overflow). The only safe escape hatch is the render as it existed
+-- at FILE LOAD, before any OnGameStart patcher installed: when our wrapper
+-- detects re-entry (see the depth guards below), it calls this instead of
+-- chaining, which terminates the loop. The outer invocation's DoTooltip
+-- wrapper is still armed on the item metatable at that point, so provider
+-- dispatch (and the reclaiming mod's own registered provider) still renders.
+local BOOT_INV_RENDER = ISToolTipInv and ISToolTipInv.render
+local BOOT_SLOT_RENDER = ISToolTipItemSlot and ISToolTipItemSlot.render
+
 -- B42.16 vanilla bug: getText("Item Report") has no prefix so it always fails.
 -- Pre-seed the Translator's "missing" set via unattributed loadstring closure.
 pcall(function()
@@ -898,7 +915,7 @@ local function InstallHook()
     local inv_accentId = nil
     local inv_accentColor = nil
 
-    ISToolTipInv.render = function(self)
+    local function inv_renderBody(self)
         local item = self.item
         local providers = TooltipLib._getProvidersForTarget("item")
 
@@ -1415,6 +1432,30 @@ local function InstallHook()
         end
     end
 
+    -- Depth-guarded entry point: re-entry on the same call stack means the
+    -- render chain looped back into us (a reclaiming wrapper mod captured our
+    -- wrapper as its fallback AND we captured its wrapper as our original —
+    -- see the BOOT_INV_RENDER comment at the top of this file). Chaining
+    -- again would recurse without bound; break the cycle with the boot-time
+    -- render instead. The depth is pcall-managed so a body error can never
+    -- leave it stuck above zero (which would silently retire the hook).
+    local inv_renderDepth = 0
+    local bootInvRender = BOOT_INV_RENDER or original_render
+    ISToolTipInv.render = function(self)
+        if inv_renderDepth > 0 then
+            TooltipLib._logOnce("render_cycle",
+                "Render-slot cycle detected: another tooltip mod re-captured " ..
+                "ISToolTipInv.render around TooltipLib (mutual wrap, e.g. an " ..
+                "'install late to win' reclaim loop). Breaking the loop with " ..
+                "the boot-time render; provider content still dispatches.")
+            return bootInvRender(self)
+        end
+        inv_renderDepth = inv_renderDepth + 1
+        local bodyOk, bodyErr = pcall(inv_renderBody, self)
+        inv_renderDepth = inv_renderDepth - 1
+        if not bodyOk then error(bodyErr, 0) end
+    end
+
     TooltipLib._hookStatus.item = true
     TooltipLib._itemHookInstalled = true   -- idempotency: don't re-wrap on reload
     TooltipLib._log("ISToolTipInv hook installed (" ..
@@ -1461,7 +1502,7 @@ local function InstallHook()
         local slot_accentId = nil
         local slot_accentColor = nil
 
-        ISToolTipItemSlot.render = function(self)
+        local function slot_renderBody(self)
             local item = self.item
 
             frameCounter = frameCounter + 1
@@ -1814,6 +1855,24 @@ local function InstallHook()
                 slot_deferCachedH = 0
                 slot_deferCachedW = 0
             end
+        end
+
+        -- Depth-guarded entry point (see the ISToolTipInv hook above): break
+        -- render-slot cycles with the boot-time render instead of chaining.
+        local slot_renderDepth = 0
+        local bootSlotRender = BOOT_SLOT_RENDER or original_slot_render
+        ISToolTipItemSlot.render = function(self)
+            if slot_renderDepth > 0 then
+                TooltipLib._logOnce("slot_render_cycle",
+                    "Render-slot cycle detected on ISToolTipItemSlot " ..
+                    "(mutual wrap with another tooltip mod). Breaking the " ..
+                    "loop with the boot-time render.")
+                return bootSlotRender(self)
+            end
+            slot_renderDepth = slot_renderDepth + 1
+            local bodyOk, bodyErr = pcall(slot_renderBody, self)
+            slot_renderDepth = slot_renderDepth - 1
+            if not bodyOk then error(bodyErr, 0) end
         end
 
         TooltipLib._hookStatus.itemSlot = true
