@@ -1,0 +1,38 @@
+Hi Deharath — TooltipLib author here. A heads-up plus a small suggestion: your Burden/Breathing tooltip rows silently can't render when StarlitLibrary is installed, in any load order, and it's structural rather than a bug on either side alone.
+
+[b]What happens[/b]
+Your ArmorMakesSense_UITooltip injects rows via a per-render DoTooltip metatable swap inside your ISToolTipInv.render wrapper (renderWithItemExtension). That works when something in the render chain eventually calls item:DoTooltip. StarlitLibrary never does — it builds the item card itself via item:DoTooltipEmbedded plus its onFillItemTooltip event, then renders its own layout. Your swap is armed but never dispatched, and the card the player sees is Starlit's, without your rows. Load order can't change this: whoever's layout survives is the card, and under Starlit that's always Starlit's.
+
+The same applies when any tooltip framework owns the final card build — your rows only exist inside a DoTooltip replacement that layout-building frameworks bypass by design.
+
+[b]We verified this in the field[/b]
+Session log with StarlitLibrary + TooltipLib + AMS all active: your patch installs fine ("[UI] AMS tooltip rows registered around the inventory tooltip owner"), Starlit builds ~1000 item cards, Burden never appears on armor that has it. Also worth knowing: your UI.update re-takes ISToolTipInv.render whenever another mod has wrapped after you. TooltipLib 1.6.0 contains the resulting render-slot loops automatically (we counted ~1500 contained loop-breaks in one session), but that reclaim pattern is the same mechanism that produces stack overflows between two re-asserting mods — see the Global Storage SiK / Magic Accessories incidents.
+
+[b]The suggestion[/b]
+You already built provider infrastructure for EuryTooltipController (buildProviderRows + registerProvider). Registering the same rows with TooltipLib when it's present is ~15 lines and makes them appear in every card owner we integrate with — including inside StarlitLibrary's card via our native adapter:
+
+[code]
+if TooltipLib and TooltipLib.registerProvider then
+    TooltipLib.registerProvider({
+        id = "ArmorMakesSense",
+        target = "item",
+        description = "Armor Makes Sense: Burden and Breathing",
+        enabled = function(item)
+            return buildTooltipRows(item) ~= nil
+        end,
+        callback = function(ctx)
+            for _, row in ipairs(buildTooltipRows(ctx.item) or {}) do
+                if row.progress ~= nil then
+                    ctx:addProgress(row.label, row.progress, nil, row.barColor)
+                else
+                    ctx:addKeyValue(row.label, row.value, row.labelColor, row.valueColor)
+                end
+            end
+        end,
+    })
+end
+[/code]
+
+Then, like your existing providerOwnsRows() gate for Eury, skip the render patch (and ideally the periodic re-install) when TooltipLib is present — the provider covers everything the patch did, without fighting for the render slot.
+
+Happy to test a beta against our compatibility rig (we regression-test exactly these interactions), and TooltipLib's docs/COMPATIBILITY.md describes the whole landscape if you want the background. Your tooltip code is genuinely careful work — this is about the one surface no amount of care on your side can reach alone.
