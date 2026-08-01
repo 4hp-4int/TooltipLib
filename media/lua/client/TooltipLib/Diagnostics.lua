@@ -34,6 +34,11 @@ local KNOWN_MODS = {
     { id = "ExtensiveHealthReworkB42", name = "Extensive Health Rework Evolved", class = "ownpanel" },
     { id = "StarlitLibrary", name = "StarlitLibrary", class = "host" },
     { id = "MagicAccessories", name = "Magic Accessories", class = "reclaimer" },
+    { id = "ArmorMakesSense", name = "Armor Makes Sense", class = "reclaimer",
+      note = "its Burden/Breathing tooltip rows CANNOT show while StarlitLibrary owns the " ..
+          "card (AMS only integrates with EuryTooltipController; Starlit builds the card " ..
+          "without dispatching AMS's hook) — no load order fixes that; the AMS author " ..
+          "would need to register a TooltipLib or Starlit provider" },
 }
 
 local OWN_MOD_ID = "TooltipLib"
@@ -173,6 +178,9 @@ function TooltipLib.diagnose(silent)
                         (n("cycleBreaks") > 0 and (" (" .. n("cycleBreaks") .. " loop-breaks this session)") or "")
                 elseif mod.class == "ownpanel" then
                     line = line .. " — draws its own tooltips for its items; TooltipLib stands down there by design"
+                end
+                if mod.note then
+                    line = line .. ". NOTE: " .. mod.note
                 end
                 knownLines[#knownLines + 1] = "  " .. line
             end
