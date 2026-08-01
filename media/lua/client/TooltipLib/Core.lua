@@ -69,8 +69,8 @@
 --   _mpGetCached, _mpRequest, _mpAggregate (set by MPClient.lua)
 -- ============================================================================
 
-local CURRENT_VERSION = "1.5.4"
-local CURRENT_VERSION_NUM = 13
+local CURRENT_VERSION = "1.6.0"
+local CURRENT_VERSION_NUM = 14
 
 -- Version guard: if a newer version is already loaded, do not replace it
 if TooltipLib and TooltipLib.VERSION_NUM
@@ -150,6 +150,16 @@ TooltipLib._providerOverrides = TooltipLib._providerOverrides or {}  -- id -> bo
 TooltipLib._callbackCache = TooltipLib._callbackCache or {}      -- providerId -> { itemId, cacheKey, displayList, frameRecorded }
 TooltipLib._errorCounts = TooltipLib._errorCounts or {}        -- providerId -> { consecutive, disabled }
 TooltipLib._hookStatus = TooltipLib._hookStatus or {}            -- surface -> true (success) | string (failure reason)
+TooltipLib._diag = TooltipLib._diag or {}                        -- runtime evidence counters (read by Diagnostics.lua)
+TooltipLib._installedRender = TooltipLib._installedRender or {}  -- surface -> the render wrapper we installed (slot-ownership probe)
+
+--- Bump a diagnostics evidence counter. Called from hot paths — must stay
+--- allocation-free and safe even if Diagnostics.lua never loads.
+---@param key string
+function TooltipLib._diagBump(key)
+    local d = TooltipLib._diag
+    d[key] = (d[key] or 0) + 1
+end
 
 -- ============================================================================
 -- MP method whitelist (shared between Core registration and MPServer)

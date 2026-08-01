@@ -1,0 +1,36 @@
+Hi Finy — TooltipLib author here. Thanks for being open to a compat pass; here's exactly what we found, plus a small suggested change that closes the whole crash class (including the Global Storage SiK one your file comments mention).
+
+[b]What happens[/b]
+Both mods wrap ISToolTipInv.render and remember the previous function to hand off to. Your reclaim loop (ensureInstalled on OnGameStart / OnCreatePlayer / OnPlayerUpdate) re-captures whatever render is CURRENT as fallback_render each time it re-takes the slot. When Magic Accessories loads before TooltipLib:
+
+1. Your OnGameStart install: fallback_render = vanilla, slot = customRender
+2. TooltipLib installs: our original_render = customRender, slot = our wrapper
+3. Your reclaim: fallback_render = our wrapper, slot = customRender
+
+Now the two functions point at each other. On the first hover: customRender -> our wrapper -> customRender -> ... and the isRendering guard can't stop it, because its escape path is [i]return fallback_render(self)[/i] — which is our wrapper again, so the guard feeds the loop instead of breaking it. Unbounded mutual recursion -> the stack overflow. It's the identical mechanism to your SiK crash: two mods that both "wrap and re-assert ownership" can always form this loop, and a re-entry guard can't break it while it delegates to a captured fallback that is itself part of the loop. We reproduced this on PZ's actual Kahlua VM (61 nested re-entries in a single render) and confirmed the fix in game.
+
+[b]What TooltipLib does now (v1.6.0)[/b]
+Our wrapper detects re-entry on the same call stack and, instead of chaining, calls the render captured at file-load time (before any OnGameStart patcher runs). That terminates the loop and the tooltip still draws fully — including your magic lines, since your registered TooltipLib provider runs inside our dispatch. With TL 1.6.0+, any load order is safe.
+
+[b]Suggested change on your side[/b] — protects your users against every wrapping mod, not just TooltipLib:
+
+[code]
+-- top of MagicAccessories_Tooltip.lua (file scope, runs before any
+-- OnGameStart patcher can install):
+local BOOT_RENDER = ISToolTipInv.render
+
+-- in customRender:
+if isRendering then
+    -- NOT fallback_render: after a reclaim it can point back into the
+    -- loop (that's the SiK/TooltipLib stack overflow). BOOT_RENDER is
+    -- outside any cycle by construction.
+    return BOOT_RENDER(self)
+end
+[/code]
+
+That's the whole fix — one captured upvalue and one changed line. Optionally you could also skip taking the render slot entirely when TooltipLib is present (your provider already renders the rolled lines through us, and your customRender already delegates rolled items to the captured chain) — but that's a design choice; the BOOT_RENDER escape alone ends the crash class.
+
+[b]One description correction[/b]
+"Put TooltipLib at the bottom of the load order" is actually the ordering that FORMS the loop on TooltipLib older than 1.6.0 (bottom = loads last = we capture your wrapper as our original, then your reclaim closes the cycle). Once either fix is in, order stops mattering; until then, TooltipLib at the TOP is the safe direction.
+
+Happy to test a beta of your change against our recursion test rig — just ping me. And thanks again: your code comments on the Eury/Tempo/SiK investigations genuinely helped pin this down.

@@ -28,6 +28,7 @@ require "ISUI/ISToolTipInv"
 
 pcall(function() require "TooltipLib/Options" end)
 pcall(function() require "TooltipLib/StarlitAdapter" end)
+pcall(function() require "TooltipLib/Diagnostics" end)
 pcall(function() require "Entity/ISUI/Components/Crafting/ISToolTipItemSlot" end)
 
 -- Boot-time render snapshots (render-slot cycle breaker).
@@ -997,6 +998,7 @@ local function InstallHook()
                     "Render error under Starlit adapter: " .. tostring(err))
             end
             if TooltipLib._starlitFillFired then
+                TooltipLib._diagBump("starlitFills")
                 -- Happy path: Starlit fired onFillItemTooltip and our adapter
                 -- added content into its layout. The dress's rail carries the
                 -- accent when it painted; else draw the separate classic line.
@@ -1015,6 +1017,7 @@ local function InstallHook()
             -- this wrapper never runs and only load order — TL last — can help.)
             local bypassId = item:getID()
             if bypassId and not starlitBypass[bypassId] then
+                TooltipLib._diagBump("starlitBypasses")
                 starlitBypassCount = starlitBypassCount + 1
                 if starlitBypassCount > 256 then
                     starlitBypass = {}; starlitBypassCount = 1
@@ -1290,6 +1293,7 @@ local function InstallHook()
         end
 
         if not renderOk then
+            TooltipLib._diagBump("chainErrors")
             TooltipLib._logOnce(LOGP .. "render_chain_error",
                 "Render chain error (" .. surfaceName .. "): " .. tostring(renderErr))
         end
@@ -1365,6 +1369,7 @@ local function InstallHook()
                         memo.thrash = (memo.thrash or 0) + 1
                         if memo.thrash >= 3 then
                             memo.dead = true
+                            TooltipLib._diagBump("thrashRetires")
                             TooltipLib._logOnce(LOGP .. "deferred_thrash",
                                 "Deferred tooltip extents are thrashing (multiple " ..
                                 "tooltip mods fighting over the card) — appended " ..
@@ -1382,6 +1387,7 @@ local function InstallHook()
                 -- never touches the ObjectTooltip. Appending would draw at
                 -- a dead panel's coords and read back our own writes
                 -- (unbounded growth).
+                TooltipLib._diagBump("standDowns")
                 TooltipLib._logOnce(LOGP .. "deferred_standdown",
                     "Foreign renderer replaced ISToolTipInv.render and drew " ..
                     "its own panel (bypassed the ObjectTooltip). Standing " ..
@@ -1435,6 +1441,7 @@ local function InstallHook()
             -- padding), so the accent stays consistent across the foreign
             -- and appended regions instead of flickering between the flat
             -- first frame (line) and dressed frames (no line).
+            TooltipLib._diagBump("deferredRenders")
             local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
                 surfaceName, extraFields, nil, deferStartY, hasHiddenDetail)
             accentId, accentColor = itemId, accent
@@ -1452,6 +1459,7 @@ local function InstallHook()
             -- vanilla-box suppression for it). Render-chain errors leave the
             -- memory untouched.
             if ourWrapperFired then
+                TooltipLib._diagBump("ownedRenders")
                 ownedItemId = itemId
                 -- final height AFTER the whole chain (late growers included)
                 -- feeds next frame's dress coverage
@@ -1477,8 +1485,9 @@ local function InstallHook()
     -- leave it stuck above zero (which would silently retire the hook).
     local renderDepth = 0
     local bootRender = cfg.bootRender or original
-    cfg.class.render = function(self)
+    local guardedRender = function(self)
         if renderDepth > 0 then
+            TooltipLib._diagBump("cycleBreaks")
             TooltipLib._logOnce(LOGP .. "render_cycle",
                 "Render-slot cycle detected on the " .. surfaceName .. " surface: " ..
                 "another tooltip mod re-captured the render slot around TooltipLib " ..
@@ -1491,6 +1500,10 @@ local function InstallHook()
         renderDepth = renderDepth - 1
         if not bodyOk then error(bodyErr, 0) end
     end
+    cfg.class.render = guardedRender
+    -- Slot-ownership probe for Diagnostics: "is our wrapper still what the
+    -- class dispatches to?" distinguishes chained-after from replaced.
+    TooltipLib._installedRender[surfaceName] = guardedRender
     end   -- installLayoutSurfaceHook
 
     -- ================================================================

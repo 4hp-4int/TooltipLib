@@ -38,6 +38,29 @@ modOptions:addKeyBind("detailKey", getText("UI_TL_DetailKey"), Keyboard.KEY_LSHI
 -- foreign ones vanilla). Information is identical either way.
 modOptions:addTickBox("mixedDress", "UI_TL_MixedDress", false, "UI_TL_MixedDressDesc")
 
+-- One-click compatibility check: runs TooltipLib.diagnose(), shows the
+-- verdict in a small modal, prints the full report to the console/debug log.
+-- Works from the main menu too (the check says to re-run in-game).
+modOptions:addButton("diagnose", getText("UI_TL_Diagnose"), "UI_TL_DiagnoseDesc", function()
+    local ok, err = pcall(function()
+        if not TooltipLib.diagnose then
+            require "TooltipLib/Diagnostics"
+        end
+        local _, level, summary = TooltipLib.diagnose()
+        local textBody = "[" .. level .. "] " .. summary .. "\n\n" .. getText("UI_TL_DiagnoseConsole")
+        local w, h = 420, 170
+        local core = getCore()
+        local modal = ISModalDialog:new(
+            (core:getScreenWidth() - w) / 2, (core:getScreenHeight() - h) / 2,
+            w, h, textBody, false, nil, nil)
+        modal:initialise()
+        modal:addToUIManager()
+    end)
+    if not ok then
+        TooltipLib._log("diagnose button error: " .. tostring(err))
+    end
+end)
+
 --- Live gate read by _resolvePanelDress (Core).
 ---@return boolean
 function TooltipLib._mixedDressAllowed()

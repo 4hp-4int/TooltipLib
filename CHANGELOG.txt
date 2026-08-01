@@ -4,9 +4,11 @@ Player-facing changelog in plain language. BBCode-formatted so it can be pasted
 straight into the Steam Workshop "Change Notes" box on update. For the technical
 changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
-[b]v1.5.4[/b]
+[b]v1.6.0[/b]
 [list]
 [*] Fixed: game crash (stack overflow) the moment you hover an item, when certain other tooltip-modifying mods are installed — reported with Magic Accessories (and it's the same crash that mod has with Global Storage SiK). Some mods keep re-taking control of the item tooltip; depending on your load order, TooltipLib and that mod could end up handing the tooltip back and forth to each other forever. TooltipLib now notices the loop and breaks it — and the tooltip still draws complete, vanilla info plus every mod's added lines. Any load order works now.
+[*] New: a one-click compatibility check. Mod Options > TooltipLib > "Run compatibility check" (or TooltipLib.diagnose() in the Lua console) tells you how TooltipLib is getting along with your other tooltip mods: everything healthy, conflicts contained automatically, or something that needs YOU — with plain instructions like "move TooltipLib below mod X in the load order" or "copy this report to the Workshop page". It checks your actual mod list, so the advice is specific, not generic. If a real problem is detected, one warning line appears in the console a couple of minutes into the session — no popups.
+[*] Internal: the item and crafting-slot tooltip hooks now share one implementation, so every compatibility fix automatically applies to both. No visible change.
 [/list]
 
 [b]v1.5.3[/b]

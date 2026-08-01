@@ -1,0 +1,26 @@
+[h1]TooltipLib v1.6.0 — crash fix + the compatibility check[/h1]
+[i]Released: 2026-08-01[/i]
+
+[b]Fixes a stack-overflow crash with certain tooltip-modifying mods, and adds a one-click check that tells you whether your tooltip mods are getting along — and exactly what to do when they aren't.[/b]
+
+[h1]Fixed[/h1]
+[list]
+[*][b]Game crash (stack overflow) on item hover with Magic Accessories and mods like it.[/b] Some mods keep re-taking control of the item tooltip during play. Depending on your load order, that mod and TooltipLib could each end up believing the other is "next in line" — so hovering any item made them hand the tooltip back and forth forever, until the game crashed. TooltipLib now notices the loop and breaks it: the tooltip draws normally and completely — vanilla info plus every mod's added lines, including the other mod's own. Any load order works now. (This was load-order dependent, which is why it hit some players and not others with the same mod list.)
+[/list]
+
+[h1]Added[/h1]
+[list]
+[*][b]Compatibility check.[/b] Mod Options > TooltipLib > [i]Run compatibility check[/i] (or [i]TooltipLib.diagnose()[/i] in the Lua console). It inspects what actually happened this session — which mod holds the tooltip hook, whether content is flowing, whether any conflict was detected and contained — and checks your real mod list, then gives one of three verdicts: everything healthy; conflicts contained automatically (tooltips work, optional improvements listed); or action needed, with plain instructions like "move TooltipLib below [i]mod X[/i] in the load order" or "copy this report to that mod's Workshop page". It knows the common tooltip mods (Tempo, Show Weapon Stats Plus, Extensive Health Rework, StarlitLibrary, Magic Accessories) and says specifically how each should be ordered relative to TooltipLib.
+[*][b]Quiet automatic check.[/b] A couple of minutes into each session, TooltipLib checks itself once; only if something genuinely needs your attention does a single warning line appear in the console. No popups, no repeats.
+[/list]
+
+[h1]Changed[/h1]
+[list]
+[*]The inventory-item and crafting-slot tooltip hooks now share one implementation internally, so every compatibility fix automatically covers both. No visible change; heavily tested (750+ automated checks).
+[/list]
+
+[h1]Notes[/h1]
+[list]
+[*]Save-safe; SP and MP safe (client-local). No settings changed.
+[*]Fully quit to desktop and relaunch after updating — the game only loads mod code at startup.
+[/list]
