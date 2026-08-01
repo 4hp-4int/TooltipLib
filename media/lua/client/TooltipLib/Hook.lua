@@ -856,20 +856,48 @@ local function InstallHook()
     end
 
     -- ================================================================
-    -- ISToolTipInv hook (inventory item tooltips)
+    -- Layout-surface hook factory (ISToolTipInv + ISToolTipItemSlot)
     -- ================================================================
-    local original_render = ISToolTipInv.render
+    -- ONE implementation of the render hook, instantiated per surface —
+    -- historically the two hooks were hand-maintained copies and every
+    -- deferred-path fix had to be written twice. Per-surface state lives
+    -- as plain locals in this closure (each call creates a fresh set).
+    -- The body keeps the item hook's historical text/indentation so the
+    -- unification diff stays reviewable. Config points cover the real
+    -- asymmetries between the surfaces:
+    --   name          surface name ("item"/"itemSlot") for dispatch,
+    --                 dress resolution and log messages
+    --   class         the ISUI class whose .render is wrapped
+    --   bootRender    boot-time render snapshot (render-slot cycle breaker)
+    --   getProviders  () -> provider array (direct list, or the slot
+    --                 surface's memoized item+itemSlot priority merge)
+    --   starlit       StarlitLibrary native path + bypass memo (item only)
+    --   detailHint    hasHiddenDetail tracking for the [Shift] Details
+    --                 hint (item only; the slot surface never showed it)
+    --   extraFields   (panel) -> extra ctx fields (itemSlot ref)
+    --   logPrefix     _logOnce key prefix ("" / "slot_") — keys are
+    --                 load-bearing (session dedup), so they keep their
+    --                 historical per-surface names
+    local function installLayoutSurfaceHook(cfg)
+        local surfaceName = cfg.name
+        local getProviders = cfg.getProviders
+        local starlitOn = cfg.starlit or false
+        local detailHintOn = cfg.detailHint or false
+        local extraFieldsFn = cfg.extraFields
+        local LOGP = cfg.logPrefix or ""
 
-    -- Level 1 cache (ISToolTipInv-specific)
-    local inv_cachedItemId = nil
-    local inv_cachedProviderVersion = nil
-    local inv_cachedActiveProviders = nil  -- nil is valid (means "none active")
-    local inv_cachedL1Frame = 0
-    local inv_cachedDetailState = false
-    local inv_cachedHasHiddenDetail = false
+        local original = cfg.class.render
+
+    -- Level 1 cache (per-surface)
+    local cachedItemId = nil
+    local cachedProviderVersion = nil
+    local cachedActiveProviders = nil  -- nil is valid (means "none active")
+    local cachedL1Frame = 0
+    local cachedDetailState = false
+    local cachedHasHiddenDetail = false
     -- Deferred mode: cached dimensions from previous frame
-    local inv_deferCachedH = 0
-    local inv_deferCachedW = 0
+    local deferCachedH = 0
+    local deferCachedW = 0
     -- Deferred per-hover state: the last REAL foreign height and whether
     -- this item's hover has ever seen the tooltip laid out. A legit host
     -- that measures ONCE per hover (draws text every frame, touches height
@@ -883,24 +911,24 @@ local function InstallHook()
     -- and stood the whole re-hover down (field report: accents present one
     -- hover, gone the next). memo[itemId] = last REAL foreign extent.
     -- Bounded: wiped past 256 entries (re-learning costs one frame).
-    local inv_deferMemo = {}
-    local inv_deferMemoCount = 0
+    local deferMemo = {}
+    local deferMemoCount = 0
     -- Items for which StarlitLibrary's onFillItemTooltip never fired (another
     -- mod owns the render and bypassed Starlit's wrapper). These are routed
     -- through the safe deferred append path on subsequent frames.
-    local inv_starlitBypass = {}
-    local inv_starlitBypassCount = 0
-    local inv_deferLastId = nil
-    local inv_deferLastDetail = false
+    local starlitBypass = {}
+    local starlitBypassCount = 0
+    local deferLastId = nil
+    local deferLastDetail = false
     -- Owned-path dress height memory: the dress draws at real-pass START,
     -- before late growers (mods that skip the measure pass and append rows
     -- + height during the real DoTooltip) extend the tooltip — the card
     -- under-covered and their rows sat on empty space. Remember last
     -- frame's FINAL height per item; the dress covers max(now, remembered).
-    local inv_dressHItemId = nil
-    local inv_dressHDetail = false
-    local inv_dressFinalH = 0
-    local inv_dressFinalW = 0
+    local dressHItemId = nil
+    local dressHDetail = false
+    local dressFinalH = 0
+    local dressFinalW = 0
     -- Ownership memory: the item id whose render last fired OUR DoTooltip
     -- wrapper. The dress suppresses the vanilla box only for an item we
     -- PROVED we own — assuming ownership suppressed the box one frame before
@@ -909,15 +937,14 @@ local function InstallHook()
     -- transition in mixed sessions. Per-item (not a boolean latch) so mixed
     -- ownership self-corrects per hover. Cost: one frame of vanilla box
     -- UNDER the dress on each first owned hover, invisible in the fade-in.
-    local inv_ownedItemId = nil
+    local ownedItemId = nil
     -- Accent channel cache: the dress paints before providers run, so it
     -- reads the accent THEY declared last frame (keyed by item id).
-    local inv_accentId = nil
-    local inv_accentColor = nil
+    local accentId = nil
+    local accentColor = nil
 
-    local function inv_renderBody(self)
+    local function renderBody(self)
         local item = self.item
-        local providers = TooltipLib._getProvidersForTarget("item")
 
         frameCounter = frameCounter + 1
 
@@ -925,11 +952,13 @@ local function InstallHook()
         -- other subjects — ISFluidBar:activateToolTip passes a FluidContainer
         -- (or ResourceFluid), which has no getID/DoTooltip-item API; calling
         -- one is a nil-call that escapes pcall and logs every rendered frame.
-        -- Same rule as the ISToolTipItemSlot hook below.
-        if item and not instanceof(item, "InventoryItem") then
-            original_render(self)
+        -- (nil item: identical outcome to the old fall-through — original.)
+        if not item or not instanceof(item, "InventoryItem") then
+            original(self)
             return
         end
+
+        local providers = getProviders()
 
         -- StarlitLibrary native path: Starlit owns render and fires
         -- onFillItemTooltip; our adapter feeds provider content into ITS
@@ -939,7 +968,7 @@ local function InstallHook()
         -- our content a SECOND time via the deferred path. Just run the
         -- chain (the event fires inside it) and draw the accent the adapter
         -- captured, at the now-final height.
-        if TooltipLib._starlitAdapter and item and not inv_starlitBypass[item:getID()] then
+        if starlitOn and TooltipLib._starlitAdapter and not starlitBypass[item:getID()] then
             TooltipLib._starlitAccent = nil
             TooltipLib._starlitDressed = false
             TooltipLib._starlitFillFired = false
@@ -956,7 +985,7 @@ local function InstallHook()
                     if self.borderColor then supBdA = self.borderColor.a; self.borderColor.a = 0 end
                 end)
             end
-            local ok, err = pcall(original_render, self)
+            local ok, err = pcall(original, self)
             if supBgA ~= nil or supBdA ~= nil then
                 pcall(function()
                     if supBgA ~= nil then self.backgroundColor.a = supBgA end
@@ -985,12 +1014,12 @@ local function InstallHook()
             -- content, then it shows. (If TL isn't in the render chain at all,
             -- this wrapper never runs and only load order — TL last — can help.)
             local bypassId = item:getID()
-            if bypassId and not inv_starlitBypass[bypassId] then
-                inv_starlitBypassCount = inv_starlitBypassCount + 1
-                if inv_starlitBypassCount > 256 then
-                    inv_starlitBypass = {}; inv_starlitBypassCount = 1
+            if bypassId and not starlitBypass[bypassId] then
+                starlitBypassCount = starlitBypassCount + 1
+                if starlitBypassCount > 256 then
+                    starlitBypass = {}; starlitBypassCount = 1
                 end
-                inv_starlitBypass[bypassId] = true
+                starlitBypass[bypassId] = true
             end
             TooltipLib._logOnce("starlit_fill_bypassed",
                 "StarlitLibrary present but onFillItemTooltip did not fire for an " ..
@@ -1005,21 +1034,21 @@ local function InstallHook()
 
         -- Panel dress: resolved before the fast exits — a dress must engage
         -- on EVERY tooltip, including items no provider is active for.
-        local dressSpec = item and TooltipLib._resolvePanelDress("item") or nil
+        local dressSpec = TooltipLib._resolvePanelDress(surfaceName)
 
-        -- Fast exit: no item, nothing to add, or item lacks standard API
-        if not item or (#providers == 0 and not dressSpec) then
-            original_render(self)
+        -- Fast exit: nothing to add and no dress
+        if #providers == 0 and not dressSpec then
+            original(self)
             return
         end
         if not pcall(item.getID, item) then
-            original_render(self)
+            original(self)
             return
         end
 
         -- Permanently disabled if first-render probe failed
         if apiDisabled then
-            original_render(self)
+            original(self)
             return
         end
 
@@ -1033,14 +1062,14 @@ local function InstallHook()
             if not idx
                 or type(idx.DoTooltip) ~= "function"
                 or type(idx.DoTooltipEmbedded) ~= "function" then
-                TooltipLib._log("WARN: Item API probe failed — " ..
-                    "DoTooltip/DoTooltipEmbedded not found on item metatable. " ..
+                TooltipLib._log("WARN: Item API probe failed (" .. surfaceName ..
+                    ") — DoTooltip/DoTooltipEmbedded not found on item metatable. " ..
                     "Hook disabled. TooltipLib requires PZ Build 42.13.1+")
                 apiDisabled = true
-                original_render(self)
+                original(self)
                 return
             end
-            TooltipLib._log("API probe passed")
+            TooltipLib._log("API probe passed (" .. surfaceName .. ")")
         end
 
         -- Read detail key state (keyboard modifier for "hold Shift for details")
@@ -1052,44 +1081,48 @@ local function InstallHook()
         local providerVersion = TooltipLib._providerVersion
         local activeProviders
         local hasHiddenDetail = false
-        local l1Stale = (frameCounter - inv_cachedL1Frame) >= L1_REFRESH_INTERVAL
+        local l1Stale = (frameCounter - cachedL1Frame) >= L1_REFRESH_INTERVAL
 
-        if itemId == inv_cachedItemId
-            and providerVersion == inv_cachedProviderVersion
-            and detailHeld == inv_cachedDetailState
+        if itemId == cachedItemId
+            and providerVersion == cachedProviderVersion
+            and detailHeld == cachedDetailState
             and not l1Stale then
-            activeProviders = inv_cachedActiveProviders
-            hasHiddenDetail = inv_cachedHasHiddenDetail or false
+            activeProviders = cachedActiveProviders
+            hasHiddenDetail = cachedHasHiddenDetail or false
             TooltipLib._debugLog("L1 cache hit (item " .. itemId .. ")")
         else
             -- Cache miss: evaluate enabled() for all providers
-            if l1Stale and itemId == inv_cachedItemId then
+            if l1Stale and itemId == cachedItemId then
                 TooltipLib._debugLog("L1 periodic refresh (item " .. itemId .. ")")
             else
                 TooltipLib._debugLog("L1 cache miss (item " .. itemId .. ")")
             end
             activeProviders, hasHiddenDetail = TooltipLib._evaluateProviders(providers, detailHeld, item)
 
-            inv_cachedItemId = itemId
-            inv_cachedProviderVersion = providerVersion
-            inv_cachedActiveProviders = activeProviders
-            inv_cachedDetailState = detailHeld
-            inv_cachedHasHiddenDetail = hasHiddenDetail
-            inv_cachedL1Frame = frameCounter
+            cachedItemId = itemId
+            cachedProviderVersion = providerVersion
+            cachedActiveProviders = activeProviders
+            cachedDetailState = detailHeld
+            cachedHasHiddenDetail = hasHiddenDetail
+            cachedL1Frame = frameCounter
         end
+
+        -- Surfaces without the detail hint (itemSlot) never reserve the
+        -- hint line: pass "no hidden detail" downstream, as they always did
+        if not detailHintOn then hasHiddenDetail = false end
 
         -- No active providers -> vanilla path, unless a dress is on: the
         -- dress still needs the DoTooltip wrapper to paint under vanilla's
         -- own layout draw.
         if not activeProviders and not dressSpec then
-            original_render(self)
+            original(self)
             return
         end
 
         -- Get the item's metatable to hook DoTooltip
         local mt = getmetatable(item)
         if not mt or not mt.__index then
-            original_render(self)
+            original(self)
             return
         end
 
@@ -1097,9 +1130,12 @@ local function InstallHook()
         local original_DoTooltip = itemMetatable.DoTooltip
 
         if not original_DoTooltip then
-            original_render(self)
+            original(self)
             return
         end
+
+        -- Extra context fields (the slot surface passes its itemSlot ref)
+        local extraFields = extraFieldsFn and extraFieldsFn(self) or nil
 
         -- Temporary DoTooltip wrapper: 5-phase provider dispatch
         local ourWrapperFired = false
@@ -1112,7 +1148,7 @@ local function InstallHook()
             -- before they run; tooltips fade in over ~15 frames, so the one-
             -- frame catch-up is invisible).
             if dressSpec then
-                local dressAccent = (inv_accentId == itemId) and inv_accentColor or nil
+                local dressAccent = (accentId == itemId) and accentColor or nil
                 local dw, dh
                 pcall(function()
                     dw = tooltip:getWidth()
@@ -1136,15 +1172,15 @@ local function InstallHook()
                 -- resizes the card, and a single-slot memory drew the grown
                 -- card for a frame on every release — a strobe while
                 -- toggling (the detail-mode jank field report).
-                if inv_dressHItemId == itemId and inv_dressHDetail == detailHeld then
-                    if dh and inv_dressFinalH > dh then dh = inv_dressFinalH end
-                    if dw and inv_dressFinalW > dw then dw = inv_dressFinalW end
+                if dressHItemId == itemId and dressHDetail == detailHeld then
+                    if dh and dressFinalH > dh then dh = dressFinalH end
+                    if dw and dressFinalW > dw then dw = dressFinalW end
                 end
-                TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, "item", dressAccent)
+                TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, surfaceName, dressAccent)
             end
             if activeProviders then
                 local accent, geom = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                    "item", nil, original_DoTooltip, nil, hasHiddenDetail, dressSpec)
+                    surfaceName, extraFields, original_DoTooltip, nil, hasHiddenDetail, dressSpec)
                 -- Accent cache discipline per pass: the real pass always
                 -- writes (truth). The measure pass writes only NON-NIL — a
                 -- callback-declared accent (recommended: it's a pure type/
@@ -1156,7 +1192,7 @@ local function InstallHook()
                 local measuring = false
                 pcall(function() measuring = tooltip:isMeasureOnly() end)
                 if not measuring then
-                    inv_accentId, inv_accentColor = itemId, accent
+                    accentId, accentColor = itemId, accent
                     -- classic bar only when undressed — a dressed card
                     -- integrates the accent (rail tint) instead
                     if not dressSpec then
@@ -1166,10 +1202,10 @@ local function InstallHook()
                         -- dots): same-frame geometry, drawn over the card,
                         -- under nothing — rules and dots live in the gaps
                         TooltipLib._drawPanelOrnaments(dressSpec, self,
-                            tooltip, geom, "item", accent)
+                            tooltip, geom, surfaceName, accent)
                     end
                 elseif accent ~= nil then
-                    inv_accentId, inv_accentColor = itemId, accent
+                    accentId, accentColor = itemId, accent
                 end
             else
                 -- Dress-only frame: no provider content, vanilla renders
@@ -1196,7 +1232,7 @@ local function InstallHook()
                                 lineSpacing = ls, width = w,
                                 midX = 0, valueRightX = w - pR,
                                 rows = {}, sections = {},
-                            }, "item", (inv_accentId == itemId) and inv_accentColor or nil)
+                            }, surfaceName, (accentId == itemId) and accentColor or nil)
                         end)
                     end
                 end
@@ -1223,7 +1259,7 @@ local function InstallHook()
         -- vanilla state. Skipped while a foreign framework owns the panel:
         -- its box IS the vanilla one we'd be blanking.
         local supBgA, supBdA
-        if dressSpec and itemId == inv_ownedItemId then
+        if dressSpec and itemId == ownedItemId then
             pcall(function()
                 if self.backgroundColor then
                     supBgA = self.backgroundColor.a
@@ -1239,7 +1275,7 @@ local function InstallHook()
         -- Call the next render in the chain (vanilla, SWSP, AMS, etc.).
         -- When it calls item:DoTooltip(), our wrapper above fires.
         -- pcall-wrapped so the metatable is ALWAYS restored, even on error.
-        local renderOk, renderErr = pcall(original_render, self)
+        local renderOk, renderErr = pcall(original, self)
 
         -- Restore original DoTooltip on the metatable (must always run)
         itemMetatable.DoTooltip = original_DoTooltip
@@ -1254,8 +1290,8 @@ local function InstallHook()
         end
 
         if not renderOk then
-            TooltipLib._logOnce("render_chain_error",
-                "Render chain error: " .. tostring(renderErr))
+            TooltipLib._logOnce(LOGP .. "render_chain_error",
+                "Render chain error (" .. surfaceName .. "): " .. tostring(renderErr))
         end
 
         -- Deferred path: our DoTooltip wrapper was overridden by another
@@ -1275,16 +1311,16 @@ local function InstallHook()
             -- Session flag: consistency mode (Core._resolvePanelDress) keys
             -- off having EVER seen a foreign framework.
             TooltipLib._deferrerSeen = true
-            inv_ownedItemId = nil
+            ownedItemId = nil
 
             -- Extension-dim caches are per-hover AND per-detail-state:
             -- reset on item change or detail toggle (detail legitimately
             -- resizes the appended block)
-            if itemId ~= inv_deferLastId or detailHeld ~= inv_deferLastDetail then
-                inv_deferLastId = itemId
-                inv_deferLastDetail = detailHeld
-                inv_deferCachedH = 0
-                inv_deferCachedW = 0
+            if itemId ~= deferLastId or detailHeld ~= deferLastDetail then
+                deferLastId = itemId
+                deferLastDetail = detailHeld
+                deferCachedH = 0
+                deferCachedW = 0
             end
 
             -- Layout detection: the chain touched the tooltip this frame
@@ -1292,15 +1328,15 @@ local function InstallHook()
             local postTooltipH = -1
             pcall(function() postTooltipH = self.tooltip:getHeight() end)
             local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
-            local memo = inv_deferMemo[itemId]
+            local memo = deferMemo[itemId]
             -- THRASH CLAMP: some stacks (render-replacer x deferrer x us)
             -- report wildly different extents frame to frame — no append
             -- base is trustworthy. After repeated large swings the item is
             -- retired to clean vanilla for the session: stability beats
             -- chrome (provider content is suppressed for it).
             if memo and memo.dead then
-                inv_deferCachedH = 0
-                inv_deferCachedW = 0
+                deferCachedH = 0
+                deferCachedW = 0
                 return
             end
             if laidOut then
@@ -1317,45 +1353,45 @@ local function InstallHook()
                     if ph and ph ~= prePanelH and ph > extent then extent = ph end
                 end)
                 if memo == nil then
-                    inv_deferMemoCount = inv_deferMemoCount + 1
-                    if inv_deferMemoCount > 256 then
-                        inv_deferMemo = {}
-                        inv_deferMemoCount = 1
+                    deferMemoCount = deferMemoCount + 1
+                    if deferMemoCount > 256 then
+                        deferMemo = {}
+                        deferMemoCount = 1
                     end
                     memo = { h = extent, thrash = 0 }
-                    inv_deferMemo[itemId] = memo
+                    deferMemo[itemId] = memo
                 else
                     if math.abs(extent - memo.h) > math.max(24, memo.h * 0.3) then
                         memo.thrash = (memo.thrash or 0) + 1
                         if memo.thrash >= 3 then
                             memo.dead = true
-                            TooltipLib._logOnce("deferred_thrash",
+                            TooltipLib._logOnce(LOGP .. "deferred_thrash",
                                 "Deferred tooltip extents are thrashing (multiple " ..
                                 "tooltip mods fighting over the card) — appended " ..
                                 "content retired to plain vanilla for affected items.")
-                            inv_deferCachedH = 0
-                            inv_deferCachedW = 0
+                            deferCachedH = 0
+                            deferCachedW = 0
                             return
                         end
                     end
                     memo.h = extent
                 end
-            elseif not inv_deferMemo[itemId] then
+            elseif not deferMemo[itemId] then
                 -- This item has NEVER been seen laid out: an EHR-style
                 -- bypass — the foreign renderer draws its own panel and
                 -- never touches the ObjectTooltip. Appending would draw at
                 -- a dead panel's coords and read back our own writes
                 -- (unbounded growth).
-                TooltipLib._logOnce("deferred_standdown",
+                TooltipLib._logOnce(LOGP .. "deferred_standdown",
                     "Foreign renderer replaced ISToolTipInv.render and drew " ..
                     "its own panel (bypassed the ObjectTooltip). Standing " ..
                     "down to prevent unbounded tooltip growth; provider " ..
                     "content is suppressed for items it fully owns.")
-                inv_deferCachedH = 0
-                inv_deferCachedW = 0
+                deferCachedH = 0
+                deferCachedW = 0
                 return
             end
-            local inv_deferForeignH = inv_deferMemo[itemId].h
+            local deferForeignH = deferMemo[itemId].h
             -- stale-height frames (incl. whole re-hovers under per-item-
             -- cached hosts) append from the remembered foreign extent
 
@@ -1366,30 +1402,30 @@ local function InstallHook()
             -- the tooltip.
             local deferProviders = activeProviders and stripReplacers(activeProviders)
             if not deferProviders then
-                inv_deferCachedH = 0
-                inv_deferCachedW = 0
+                deferCachedH = 0
+                deferCachedW = 0
                 return
             end
 
-            TooltipLib._logOnce("deferred_mode",
+            TooltipLib._logOnce(LOGP .. "deferred_mode",
                 "DoTooltip wrapper overridden by another mod — " ..
                 "using deferred layout. Provider content may not " ..
                 "align with vanilla tooltip rows.")
             local tooltip = self.tooltip
             local padBottom = tooltip.padBottom or 5
-            local foreignH = inv_deferForeignH
+            local foreignH = deferForeignH
             local foreignW = tooltip:getWidth()
             local deferStartY = foreignH - padBottom
 
             -- Pre-draw the extension using previous frame's dimensions:
             -- dressed (the skin's material below the foreign card) when the
             -- dress offers drawDeferred, else the flat feathered rect.
-            local bgW = math.max(foreignW, inv_deferCachedW)
-            local dressAccent = (inv_accentId == itemId) and inv_accentColor or nil
+            local bgW = math.max(foreignW, deferCachedW)
+            local dressAccent = (accentId == itemId) and accentColor or nil
             local extDressed = dressSpec and TooltipLib._drawPanelDeferred(
-                dressSpec, self, foreignH, inv_deferCachedH, bgW, "item", dressAccent)
+                dressSpec, self, foreignH, deferCachedH, bgW, surfaceName, dressAccent)
             if not extDressed then
-                drawDeferredBackground(self, foreignH, inv_deferCachedH, bgW)
+                drawDeferredBackground(self, foreignH, deferCachedH, bgW)
             end
 
             -- Render provider content on top of the background
@@ -1400,61 +1436,75 @@ local function InstallHook()
             -- and appended regions instead of flickering between the flat
             -- first frame (line) and dressed frames (no line).
             local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
-                "item", nil, nil, deferStartY, hasHiddenDetail)
-            inv_accentId, inv_accentColor = itemId, accent
+                surfaceName, extraFields, nil, deferStartY, hasHiddenDetail)
+            accentId, accentColor = itemId, accent
             drawAccentLine(tooltip, accent)
 
             -- Cache total dimensions for next frame's background pre-draw
-            inv_deferCachedH = tooltip:getHeight()
-            inv_deferCachedW = math.max(foreignW, tooltip:getWidth())
+            deferCachedH = tooltip:getHeight()
+            deferCachedW = math.max(foreignW, tooltip:getWidth())
 
             -- Sync ISPanel dimensions so positioning calculations work
-            self:setHeight(inv_deferCachedH)
-            self:setWidth(inv_deferCachedW)
+            self:setHeight(deferCachedH)
+            self:setWidth(deferCachedW)
         else
             -- Our wrapper fired: this item is proven ours (arm the dress's
             -- vanilla-box suppression for it). Render-chain errors leave the
             -- memory untouched.
             if ourWrapperFired then
-                inv_ownedItemId = itemId
+                ownedItemId = itemId
                 -- final height AFTER the whole chain (late growers included)
                 -- feeds next frame's dress coverage
-                inv_dressHItemId = itemId
-                inv_dressHDetail = detailHeld
-                inv_dressFinalH, inv_dressFinalW = 0, 0
+                dressHItemId = itemId
+                dressHDetail = detailHeld
+                dressFinalH, dressFinalW = 0, 0
                 pcall(function()
-                    inv_dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
-                    inv_dressFinalW = math.max(self.tooltip:getWidth(), self:getWidth() or 0)
+                    dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
+                    dressFinalW = math.max(self.tooltip:getWidth(), self:getWidth() or 0)
                 end)
             end
-            inv_deferCachedH = 0
-            inv_deferCachedW = 0
+            deferCachedH = 0
+            deferCachedW = 0
         end
     end
 
     -- Depth-guarded entry point: re-entry on the same call stack means the
     -- render chain looped back into us (a reclaiming wrapper mod captured our
     -- wrapper as its fallback AND we captured its wrapper as our original —
-    -- see the BOOT_INV_RENDER comment at the top of this file). Chaining
+    -- see the boot-snapshot comment at the top of this file). Chaining
     -- again would recurse without bound; break the cycle with the boot-time
     -- render instead. The depth is pcall-managed so a body error can never
     -- leave it stuck above zero (which would silently retire the hook).
-    local inv_renderDepth = 0
-    local bootInvRender = BOOT_INV_RENDER or original_render
-    ISToolTipInv.render = function(self)
-        if inv_renderDepth > 0 then
-            TooltipLib._logOnce("render_cycle",
-                "Render-slot cycle detected: another tooltip mod re-captured " ..
-                "ISToolTipInv.render around TooltipLib (mutual wrap, e.g. an " ..
-                "'install late to win' reclaim loop). Breaking the loop with " ..
-                "the boot-time render; provider content still dispatches.")
-            return bootInvRender(self)
+    local renderDepth = 0
+    local bootRender = cfg.bootRender or original
+    cfg.class.render = function(self)
+        if renderDepth > 0 then
+            TooltipLib._logOnce(LOGP .. "render_cycle",
+                "Render-slot cycle detected on the " .. surfaceName .. " surface: " ..
+                "another tooltip mod re-captured the render slot around TooltipLib " ..
+                "(mutual wrap, e.g. an 'install late to win' reclaim loop). Breaking " ..
+                "the loop with the boot-time render; provider content still dispatches.")
+            return bootRender(self)
         end
-        inv_renderDepth = inv_renderDepth + 1
-        local bodyOk, bodyErr = pcall(inv_renderBody, self)
-        inv_renderDepth = inv_renderDepth - 1
+        renderDepth = renderDepth + 1
+        local bodyOk, bodyErr = pcall(renderBody, self)
+        renderDepth = renderDepth - 1
         if not bodyOk then error(bodyErr, 0) end
     end
+    end   -- installLayoutSurfaceHook
+
+    -- ================================================================
+    -- ISToolTipInv hook (inventory item tooltips)
+    -- ================================================================
+    installLayoutSurfaceHook{
+        name = "item",
+        class = ISToolTipInv,
+        bootRender = BOOT_INV_RENDER,
+        starlit = true,
+        detailHint = true,
+        logPrefix = "",
+        getProviders = function() return TooltipLib._getProvidersForTarget("item") end,
+    }
 
     TooltipLib._hookStatus.item = true
     TooltipLib._itemHookInstalled = true   -- idempotency: don't re-wrap on reload
@@ -1465,415 +1515,63 @@ local function InstallHook()
     -- ISToolTipItemSlot hook (crafting slot tooltips)
     -- ================================================================
     -- ISToolTipItemSlot is Build 42's crafting item slot tooltip.
-    -- Structurally identical to ISToolTipInv. Item providers auto-apply
-    -- here too (merged with itemSlot-specific providers), so existing
-    -- providers show up in crafting UI with no code changes.
-    -- Providers can check ctx.surface == "itemSlot" to distinguish.
+    -- Structurally identical to ISToolTipInv, so it shares the surface
+    -- factory above. Item providers auto-apply here too (merged with
+    -- itemSlot-specific providers), so existing providers show up in the
+    -- crafting UI with no code changes. Providers can check
+    -- ctx.surface == "itemSlot" to distinguish.
 
     if ISToolTipItemSlot and type(ISToolTipItemSlot.render) == "function" then
-        local original_slot_render = ISToolTipItemSlot.render
-
-        -- Level 1 cache (ISToolTipItemSlot-specific)
-        local slot_cachedItemId = nil
-        local slot_cachedProviderVersion = nil
-        local slot_cachedActiveProviders = nil
-        local slot_cachedL1Frame = 0
-        local slot_cachedDetailState = false
         -- Memoized merge of item + itemSlot providers (keyed on _providerVersion)
-        local slot_mergedProviders = nil
-        local slot_mergedVersion = nil
-        -- Deferred mode: cached dimensions from previous frame
-        local slot_deferCachedH = 0
-        local slot_deferCachedW = 0
-        -- persistent per-item defer memo + dress extent memory (see the
-        -- ISToolTipInv hook for the full reasoning)
-        local slot_deferMemo = {}
-        local slot_deferMemoCount = 0
-        local slot_deferLastId = nil
-        local slot_deferLastDetail = false
-        local slot_dressHItemId = nil
-        local slot_dressHDetail = false
-        local slot_dressFinalH = 0
-        local slot_dressFinalW = 0
-        -- Ownership memory (see ISToolTipInv hook): suppression only for an
-        -- item id whose render fired our wrapper — never assumed.
-        local slot_ownedItemId = nil
-        -- Accent channel cache (see ISToolTipInv hook)
-        local slot_accentId = nil
-        local slot_accentColor = nil
+        local mergedProviders = nil
+        local mergedVersion = nil
 
-        local function slot_renderBody(self)
-            local item = self.item
+        installLayoutSurfaceHook{
+            name = "itemSlot",
+            class = ISToolTipItemSlot,
+            bootRender = BOOT_SLOT_RENDER,
+            logPrefix = "slot_",
+            extraFields = function(panel) return { itemSlot = panel.itemSlot } end,
+            getProviders = function()
+                local providerVersion = TooltipLib._providerVersion
+                if mergedVersion ~= providerVersion then
+                    local itemProviders = TooltipLib._getProvidersForTarget("item")
+                    local slotProviders = TooltipLib._getProvidersForTarget("itemSlot")
 
-            frameCounter = frameCounter + 1
-
-            -- Guard: only hook InventoryItem (not Resource)
-            if not item or not instanceof(item, "InventoryItem") then
-                original_slot_render(self)
-                return
-            end
-
-            -- Shared API probe (may already have been done by ISToolTipInv)
-            if apiDisabled then
-                original_slot_render(self)
-                return
-            end
-
-            if not apiProbed then
-                apiProbed = true
-                local mt = getmetatable(item)
-                local idx = mt and mt.__index
-                if not idx
-                    or type(idx.DoTooltip) ~= "function"
-                    or type(idx.DoTooltipEmbedded) ~= "function" then
-                    TooltipLib._log("WARN: Item API probe failed (itemSlot) — " ..
-                        "DoTooltip/DoTooltipEmbedded not found. Hook disabled.")
-                    apiDisabled = true
-                    original_slot_render(self)
-                    return
-                end
-                TooltipLib._log("API probe passed (itemSlot)")
-            end
-
-            -- Panel dress (see ISToolTipInv hook: engages with or without
-            -- active providers)
-            local dressSpec = TooltipLib._resolvePanelDress("itemSlot")
-
-            -- Merge item + itemSlot providers (memoized on _providerVersion)
-            local providerVersion = TooltipLib._providerVersion
-            local mergedProviders = slot_mergedProviders
-            if slot_mergedVersion ~= providerVersion then
-                local itemProviders = TooltipLib._getProvidersForTarget("item")
-                local slotProviders = TooltipLib._getProvidersForTarget("itemSlot")
-
-                if #slotProviders == 0 then
-                    mergedProviders = itemProviders
-                elseif #itemProviders == 0 then
-                    mergedProviders = slotProviders
-                else
-                    -- Sorted merge of two priority-sorted arrays
-                    mergedProviders = {}
-                    local ii, si = 1, 1
-                    while ii <= #itemProviders and si <= #slotProviders do
-                        local ip = itemProviders[ii]
-                        local sp = slotProviders[si]
-                        if ip.priority < sp.priority or
-                           (ip.priority == sp.priority and ip.id < sp.id) then
-                            mergedProviders[#mergedProviders + 1] = ip
+                    if #slotProviders == 0 then
+                        mergedProviders = itemProviders
+                    elseif #itemProviders == 0 then
+                        mergedProviders = slotProviders
+                    else
+                        -- Sorted merge of two priority-sorted arrays
+                        mergedProviders = {}
+                        local ii, si = 1, 1
+                        while ii <= #itemProviders and si <= #slotProviders do
+                            local ip = itemProviders[ii]
+                            local sp = slotProviders[si]
+                            if ip.priority < sp.priority or
+                               (ip.priority == sp.priority and ip.id < sp.id) then
+                                mergedProviders[#mergedProviders + 1] = ip
+                                ii = ii + 1
+                            else
+                                mergedProviders[#mergedProviders + 1] = sp
+                                si = si + 1
+                            end
+                        end
+                        while ii <= #itemProviders do
+                            mergedProviders[#mergedProviders + 1] = itemProviders[ii]
                             ii = ii + 1
-                        else
-                            mergedProviders[#mergedProviders + 1] = sp
+                        end
+                        while si <= #slotProviders do
+                            mergedProviders[#mergedProviders + 1] = slotProviders[si]
                             si = si + 1
                         end
                     end
-                    while ii <= #itemProviders do
-                        mergedProviders[#mergedProviders + 1] = itemProviders[ii]
-                        ii = ii + 1
-                    end
-                    while si <= #slotProviders do
-                        mergedProviders[#mergedProviders + 1] = slotProviders[si]
-                        si = si + 1
-                    end
+                    mergedVersion = providerVersion
                 end
-                slot_mergedProviders = mergedProviders
-                slot_mergedVersion = providerVersion
-            end
-
-            if (not mergedProviders or #mergedProviders == 0) and not dressSpec then
-                original_slot_render(self)
-                return
-            end
-
-            local detailHeld = TooltipLib._readDetailKey()
-
-            -- Level 1 cache (slot-specific)
-            local itemId = item:getID()
-            local activeProviders
-            local l1Stale = (frameCounter - slot_cachedL1Frame) >= L1_REFRESH_INTERVAL
-
-            if itemId == slot_cachedItemId
-                and providerVersion == slot_cachedProviderVersion
-                and detailHeld == slot_cachedDetailState
-                and not l1Stale then
-                activeProviders = slot_cachedActiveProviders
-                TooltipLib._debugLog("L1 cache hit (itemSlot " .. itemId .. ")")
-            else
-                if l1Stale and itemId == slot_cachedItemId then
-                    TooltipLib._debugLog("L1 periodic refresh (itemSlot " .. itemId .. ")")
-                else
-                    TooltipLib._debugLog("L1 cache miss (itemSlot " .. itemId .. ")")
-                end
-                activeProviders = TooltipLib._evaluateProviders(mergedProviders, detailHeld, item)
-
-                slot_cachedItemId = itemId
-                slot_cachedProviderVersion = providerVersion
-                slot_cachedActiveProviders = activeProviders
-                slot_cachedDetailState = detailHeld
-                slot_cachedL1Frame = frameCounter
-            end
-
-            if not activeProviders and not dressSpec then
-                original_slot_render(self)
-                return
-            end
-
-            local mt = getmetatable(item)
-            if not mt or not mt.__index then
-                original_slot_render(self)
-                return
-            end
-
-            local itemMetatable = mt.__index
-            local original_DoTooltip = itemMetatable.DoTooltip
-
-            if not original_DoTooltip then
-                original_slot_render(self)
-                return
-            end
-
-            -- Extra context fields for itemSlot surface
-            local itemSlotRef = self.itemSlot
-
-            local ourSlotWrapperFired = false
-            itemMetatable.DoTooltip = function(tooltipItem, tooltip)
-                ourSlotWrapperFired = true
-                -- Dress first, real pass only (see ISToolTipInv hook)
-                if dressSpec then
-                    local dressAccent = (slot_accentId == itemId) and slot_accentColor or nil
-                    local dw, dh
-                    pcall(function()
-                        dw = tooltip:getWidth()
-                        dh = tooltip:getHeight()
-                    end)
-                    pcall(function()
-                        local ph = self:getHeight()
-                        local pw = self:getWidth()
-                        if dh and ph and ph > dh then dh = ph end
-                        if dw and pw and pw > dw then dw = pw end
-                    end)
-                    if slot_dressHItemId == itemId and slot_dressHDetail == detailHeld then
-                        if dh and slot_dressFinalH > dh then dh = slot_dressFinalH end
-                        if dw and slot_dressFinalW > dw then dw = slot_dressFinalW end
-                    end
-                    TooltipLib._drawPanelDress(dressSpec, self, tooltip, dw, dh, "itemSlot", dressAccent)
-                end
-                if activeProviders then
-                    local accent, geom = doLayoutDispatch(tooltipItem, tooltip, activeProviders, detailHeld,
-                        "itemSlot", { itemSlot = itemSlotRef }, original_DoTooltip, nil, nil, dressSpec)
-                    -- real pass writes truth; measure pass warms non-nil
-                    -- (see ISToolTipInv hook)
-                    local measuring = false
-                    pcall(function() measuring = tooltip:isMeasureOnly() end)
-                    if not measuring then
-                        slot_accentId, slot_accentColor = itemId, accent
-                        if not dressSpec then
-                            drawAccentLine(tooltip, accent)
-                        elseif geom then
-                            TooltipLib._drawPanelOrnaments(dressSpec, self,
-                                tooltip, geom, "itemSlot", accent)
-                        end
-                    elseif accent ~= nil then
-                        slot_accentId, slot_accentColor = itemId, accent
-                    end
-                else
-                    original_DoTooltip(tooltipItem, tooltip)
-                    -- rows-less geometry for the skin's ruling (see the
-                    -- ISToolTipInv dress-only branch)
-                    if dressSpec and type(dressSpec.ornaments) == "function" then
-                        local measuring = false
-                        pcall(function() measuring = tooltip:isMeasureOnly() end)
-                        if not measuring then
-                            pcall(function()
-                                local ls = tooltip:getLineSpacing() or 14
-                                local w = tooltip:getWidth()
-                                local h = tooltip:getHeight()
-                                local bottom = h - (tooltip.padBottom or 5)
-                                TooltipLib._drawPanelOrnaments(dressSpec, self, tooltip, {
-                                    left = tooltip.padLeft or 5,
-                                    top = (tooltip.padTop or 5) + ls,
-                                    startY = bottom, endY = bottom,
-                                    lineSpacing = ls, width = w,
-                                    midX = 0, valueRightX = w - (tooltip.padRight or 5),
-                                    rows = {}, sections = {},
-                                }, "itemSlot", (slot_accentId == itemId) and slot_accentColor or nil)
-                            end)
-                        end
-                    end
-                end
-            end
-
-            -- Snapshot ObjectTooltip identity + height (see ISToolTipInv hook):
-            -- detect foreign renderers that bypass self.tooltip and would cause
-            -- unbounded growth in the deferred branch below.
-            local preTooltip = self.tooltip
-            local preTooltipH = -1
-            if preTooltip then pcall(function() preTooltipH = preTooltip:getHeight() end) end
-            local prePanelH = -1
-            pcall(function() prePanelH = self:getHeight() end)
-
-            -- Silence vanilla's flat box while the dress is on (see the
-            -- ISToolTipInv hook for the reasoning + foreign-owner exception)
-            local supBgA, supBdA
-            if dressSpec and itemId == slot_ownedItemId then
-                pcall(function()
-                    if self.backgroundColor then
-                        supBgA = self.backgroundColor.a
-                        self.backgroundColor.a = 0
-                    end
-                    if self.borderColor then
-                        supBdA = self.borderColor.a
-                        self.borderColor.a = 0
-                    end
-                end)
-            end
-
-            local renderOk, renderErr = pcall(original_slot_render, self)
-
-            -- Restore original DoTooltip (must always run)
-            itemMetatable.DoTooltip = original_DoTooltip
-
-            -- Restore the vanilla box alphas (must always run)
-            if supBgA ~= nil or supBdA ~= nil then
-                pcall(function()
-                    if supBgA ~= nil then self.backgroundColor.a = supBgA end
-                    if supBdA ~= nil then self.borderColor.a = supBdA end
-                end)
-            end
-
-            if not renderOk then
-                TooltipLib._logOnce("slot_render_chain_error",
-                    "ItemSlot render chain error: " .. tostring(renderErr))
-            end
-
-            -- Deferred path (same pattern as ISToolTipInv)
-            if not ourSlotWrapperFired and renderOk and self.tooltip then
-                TooltipLib._deferrerSeen = true
-                slot_ownedItemId = nil
-
-                -- Per-hover defer state + layout detection — see the
-                -- ISToolTipInv hook for the full reasoning.
-                if itemId ~= slot_deferLastId or detailHeld ~= slot_deferLastDetail then
-                    slot_deferLastId = itemId
-                    slot_deferLastDetail = detailHeld
-                    slot_deferCachedH = 0
-                    slot_deferCachedW = 0
-                end
-                local postTooltipH = -1
-                pcall(function() postTooltipH = self.tooltip:getHeight() end)
-                local laidOut = (self.tooltip ~= preTooltip) or (postTooltipH ~= preTooltipH)
-                local memo = slot_deferMemo[itemId]
-                if memo and memo.dead then
-                    slot_deferCachedH = 0
-                    slot_deferCachedW = 0
-                    return
-                end
-                if laidOut then
-                    local extent = postTooltipH
-                    pcall(function()
-                        local ph = self:getHeight()
-                        if ph and ph ~= prePanelH and ph > extent then extent = ph end
-                    end)
-                    if memo == nil then
-                        slot_deferMemoCount = slot_deferMemoCount + 1
-                        if slot_deferMemoCount > 256 then
-                            slot_deferMemo = {}
-                            slot_deferMemoCount = 1
-                        end
-                        memo = { h = extent, thrash = 0 }
-                        slot_deferMemo[itemId] = memo
-                    else
-                        if math.abs(extent - memo.h) > math.max(24, memo.h * 0.3) then
-                            memo.thrash = (memo.thrash or 0) + 1
-                            if memo.thrash >= 3 then
-                                memo.dead = true
-                                TooltipLib._logOnce("slot_deferred_thrash",
-                                    "ItemSlot deferred extents thrashing — appended " ..
-                                    "content retired for affected items.")
-                                slot_deferCachedH = 0
-                                slot_deferCachedW = 0
-                                return
-                            end
-                        end
-                        memo.h = extent
-                    end
-                elseif not slot_deferMemo[itemId] then
-                    TooltipLib._logOnce("slot_deferred_standdown",
-                        "Foreign renderer bypassed the ObjectTooltip; " ..
-                        "standing down to prevent unbounded tooltip growth.")
-                    slot_deferCachedH = 0
-                    slot_deferCachedW = 0
-                    return
-                end
-                local slot_deferForeignH = slot_deferMemo[itemId].h
-
-                -- Dress-only frames: nothing to defer below foreign content
-                local deferProviders = activeProviders and stripReplacers(activeProviders)
-                if not deferProviders then
-                    slot_deferCachedH = 0
-                    slot_deferCachedW = 0
-                    return
-                end
-
-                TooltipLib._logOnce("slot_deferred_mode",
-                    "ItemSlot DoTooltip wrapper overridden by another mod — " ..
-                    "using deferred layout.")
-                local tooltip = self.tooltip
-                local padBottom = tooltip.padBottom or 5
-                local foreignH = slot_deferForeignH
-                local foreignW = tooltip:getWidth()
-                local deferStartY = foreignH - padBottom
-
-                local bgW = math.max(foreignW, slot_deferCachedW)
-                local dressAccent = (slot_accentId == itemId) and slot_accentColor or nil
-                local extDressed = dressSpec and TooltipLib._drawPanelDeferred(
-                    dressSpec, self, foreignH, slot_deferCachedH, bgW, "itemSlot", dressAccent)
-                if not extDressed then
-                    drawDeferredBackground(self, foreignH, slot_deferCachedH, bgW)
-                end
-
-                local accent = doLayoutDispatch(self.item, tooltip, deferProviders, detailHeld,
-                    "itemSlot", { itemSlot = itemSlotRef }, nil, deferStartY)
-                slot_accentId, slot_accentColor = itemId, accent
-                -- always: consistent accent across foreign + appended regions
-                drawAccentLine(tooltip, accent)
-
-                slot_deferCachedH = tooltip:getHeight()
-                slot_deferCachedW = math.max(foreignW, tooltip:getWidth())
-                self:setHeight(slot_deferCachedH)
-                self:setWidth(slot_deferCachedW)
-            else
-                if ourSlotWrapperFired then
-                    slot_ownedItemId = itemId
-                    slot_dressHItemId = itemId
-                    slot_dressHDetail = detailHeld
-                    slot_dressFinalH, slot_dressFinalW = 0, 0
-                    pcall(function()
-                        slot_dressFinalH = math.max(self.tooltip:getHeight(), self:getHeight() or 0)
-                        slot_dressFinalW = math.max(self.tooltip:getWidth(), self:getWidth() or 0)
-                    end)
-                end
-                slot_deferCachedH = 0
-                slot_deferCachedW = 0
-            end
-        end
-
-        -- Depth-guarded entry point (see the ISToolTipInv hook above): break
-        -- render-slot cycles with the boot-time render instead of chaining.
-        local slot_renderDepth = 0
-        local bootSlotRender = BOOT_SLOT_RENDER or original_slot_render
-        ISToolTipItemSlot.render = function(self)
-            if slot_renderDepth > 0 then
-                TooltipLib._logOnce("slot_render_cycle",
-                    "Render-slot cycle detected on ISToolTipItemSlot " ..
-                    "(mutual wrap with another tooltip mod). Breaking the " ..
-                    "loop with the boot-time render.")
-                return bootSlotRender(self)
-            end
-            slot_renderDepth = slot_renderDepth + 1
-            local bodyOk, bodyErr = pcall(slot_renderBody, self)
-            slot_renderDepth = slot_renderDepth - 1
-            if not bodyOk then error(bodyErr, 0) end
-        end
+                return mergedProviders
+            end,
+        }
 
         TooltipLib._hookStatus.itemSlot = true
         TooltipLib._log("ISToolTipItemSlot hook installed (" ..
