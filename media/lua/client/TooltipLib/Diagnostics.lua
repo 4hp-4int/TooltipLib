@@ -33,6 +33,10 @@ local KNOWN_MODS = {
     { id = "showweaponstatsplus4213", name = "Show Weapon Stats Plus", class = "bypasser" },
     { id = "ExtensiveHealthReworkB42", name = "Extensive Health Rework Evolved", class = "ownpanel" },
     { id = "StarlitLibrary", name = "StarlitLibrary", class = "host" },
+    { id = "EURY_CLOTHINGINFO", name = "Better Clothing Info (EuryTooltipController)", class = "host",
+      note = "installs its controller at file load, so TooltipLib always wraps outside it — " ..
+          "safe in ANY load order. Non-clothing items compose natively (its default owner " ..
+          "dispatches item:DoTooltip); clothing cards are BCI-owned, TooltipLib appends below" },
     { id = "MagicAccessories", name = "Magic Accessories", class = "reclaimer" },
     { id = "ArmorMakesSense", name = "Armor Makes Sense", class = "reclaimer",
       note = "its Burden/Breathing tooltip rows CANNOT show while StarlitLibrary owns the " ..
