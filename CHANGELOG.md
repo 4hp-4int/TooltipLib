@@ -2,6 +2,15 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.6.1] — 2026-08-03
+
+### Fixed
+- **MP `readObject` flooded dedicated-server command traffic on cursor movement.** `HookWorldObject`'s `OnPreUIDraw` polls `UIManager.getLastPicked()` every frame, and each distinct world object is its own cache key (`x:y:z:objectIndex`) — so `REQUEST_COOLDOWN_MS`, which is keyed *per object*, never applied to objects the cursor merely swept across while the player walked. Every one of them cost an immediate `sendClientCommand` round trip. Measured on a live dedicated server (4 players, ~100 minutes): **41,714 `readObject` commands, 63% of them arriving within 250ms of the previous one** — objects nobody ever settled on — against only 13% that were genuine 2s TTL refreshes. `readObject` alone accounted for 97.5% of the server's logged command volume.
+
+  A new **hover-dwell gate** requires a *previously unseen* object to stay picked for `HOVER_DWELL_MS` (200ms) before it earns a round trip. Objects already in the client cache bypass the gate entirely, so refreshes and re-hovers (cache entries live 30s) are never delayed — only genuinely-new objects pay the 200ms, which is the ordinary feel of a tooltip delay. `REQUEST_COOLDOWN_MS` also raised 500ms → 1500ms: it sat *below* the 2000ms cache TTL, so a rested cursor could re-request several times per cache lifetime.
+
+  No change to what a resting tooltip displays, to the provider API, or to the sandbox `EnableMPSync` gate. Regression-locked in the kit (`tests/test_mpclient.lua`, 9 tests on Kahlua: with the gate removed, the sweep test goes from 0 requests to 50).
+
 ## [1.6.0] — 2026-08-01
 
 ### Added

@@ -228,7 +228,8 @@ and `API probe passed (item/itemSlot)` once each.
 | MagicAccessories stack overflow (v1.6.0) | 5 | Mutual capture: their reclaim took our wrapper as fallback after we took theirs as original; their re-entry guard delegates back into the loop | Boot-render cycle breaker |
 | ArmorMakesSense Burden rows invisible under Starlit (2026-08) | 2+5 hybrid | AMS re-takes the render slot per UI tick (reclaimer) and injects its rows via a per-render `DoTooltip` metatable swap — the same technique we use. Whoever swaps LAST wins the dispatch, and under Starlit nobody dispatches `DoTooltip` at all (Starlit builds via `DoTooltipEmbedded` + its event) — AMS's rows can't reach the surviving card in any load order. AMS only integrates with EuryTooltipController. | KNOWN_MODS note in diagnostics; author ask = register a TooltipLib provider (its Eury provider infra makes this ~15 lines) and skip the render patch when a framework owns the card |
 
-Regression locks: `pz-test-kit/uiview/tests/` — `test_tooltiplib_dress.lua`
+Regression locks: `tests/` (run with `pz-test-kit/pztest` from the repo root) —
+`test_tooltiplib_dress.lua`
 (ownership, suppression, measure-pass, subject gate), `test_tooltiplib_starlit.lua`
 (adapter contract), `test_tooltiplib_magicacc.lua` (item-surface cycle),
 `test_tooltiplib_slot.lua` (itemSlot surface characterization + cycle).

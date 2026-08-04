@@ -22,11 +22,30 @@ local MODULE = "TooltipLib"
 -- ============================================================================
 -- Keyed by "x:y:z:objectIndex". Values are { data = {...}, timestamp = ms }.
 
-local CACHE_TTL_MS = 2000       -- Cache entries valid for 2 seconds
-local REQUEST_COOLDOWN_MS = 500 -- Minimum interval between requests for same key
+local CACHE_TTL_MS = 2000        -- Cache entries valid for 2 seconds
+local REQUEST_COOLDOWN_MS = 1500 -- Minimum interval between requests for same key
+
+-- Hover-dwell gate. OnPreUIDraw polls getLastPicked() EVERY FRAME, and the
+-- cursor sweeps across dozens of distinct world objects a second while the
+-- player walks. Every one is a fresh cache key, so REQUEST_COOLDOWN_MS (keyed
+-- per object) never applies to them and each fires an immediate round trip.
+--
+-- Measured on the live dedicated server (2026-08-03, 4 players, ~100 min,
+-- 41,714 readObject commands): 63% of requests arrived within 250ms of the
+-- previous one -- objects the cursor merely passed over and never settled on.
+-- Only 13% were genuine TTL refreshes. Requiring the object to stay picked
+-- briefly before spending a round trip drops that 63% without changing what a
+-- resting tooltip shows.
+--
+-- Cold keys only: an object we already hold a cache entry for refreshes with no
+-- dwell, so re-hovering something you just looked at stays instant (entries
+-- live 30s, see EVICT_TTL_MS). Only genuinely-new objects pay the delay.
+local HOVER_DWELL_MS = 200
 
 local cache = {}        -- key -> { data = table, timestamp = number }
 local pendingKeys = {}  -- key -> timestamp of last request sent
+local dwellKey = nil    -- object key the cursor is currently settling on
+local dwellSince = 0    -- getTimestampMs() when dwellKey became the picked object
 
 -- Aggregate spec cache (avoids per-frame table allocation in _mpAggregate)
 local aggCache = nil        -- cached dataSpec result
@@ -97,6 +116,20 @@ function TooltipLib._mpRequest(dataSpec, x, y, z, objectIndex)
 
     local key = cacheKey(x, y, z, objectIndex)
     local now = getTimestampMs()
+
+    -- Dwell check: a brand-new object must stay picked for HOVER_DWELL_MS
+    -- before it earns a round trip. Objects we already have cached skip this,
+    -- so refreshes and re-hovers are never delayed.
+    if not cache[key] then
+        if dwellKey ~= key then
+            dwellKey = key
+            dwellSince = now
+            return
+        end
+        if (now - dwellSince) < HOVER_DWELL_MS then
+            return
+        end
+    end
 
     -- Cooldown check: don't spam requests for the same object
     local lastRequest = pendingKeys[key]
