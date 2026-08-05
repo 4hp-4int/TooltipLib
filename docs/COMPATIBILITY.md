@@ -130,6 +130,22 @@ stick it above zero (which would silently retire the hook).
   wrappers or reshuffle chain ownership. (Note: reclaimers *do* re-wrap per
   reload — one reason cycles were observed even in "safe" load orders after
   in-session mod-list changes. The cycle breaker covers it.)
+- **No-op-frame gate** (v1.6.1): vanilla's render on both layout surfaces
+  wraps its *entire* body in `if not ISContextMenu.instance or not
+  ISContextMenu.instance.visibleCheck` (`ISToolTipInv.lua:45`,
+  `ISToolTipItemSlot.lua:45`), so with a context menu open `item:DoTooltip`
+  is never called and `ourWrapperFired` reads false — locally
+  indistinguishable from a class-2/3 foreign owner. Ownership inference must
+  therefore only run on frames where vanilla actually drew: the deferred
+  branch skips when a menu is up. Lesson generalised: *absence of our
+  wrapper is only evidence of a foreign owner if something was rendered.*
+- **Pre-layout offset** (v1.6.1): `DoTooltipEmbedded` draws the `Contains:`
+  and `Spices:` icon strips imperatively before yielding the layout,
+  advancing its own `y` by `lineSpacing + 5` each and publishing the total
+  in `layoutOverride.offsetY` — a Java instance field Kahlua cannot read.
+  Any framework computing its own `startY` must mirror that arithmetic, and
+  probe `getExtraItems`/`getSpices` as *fields* first, since a nil method
+  call escapes Kahlua's `pcall`.
 
 ### 2.7 Error containment
 
@@ -226,6 +242,8 @@ and `API probe passed (item/itemSlot)` once each.
 | Breaker latch blanking a mod for the session (v1.5.2) | — | Adapter path recorded errors but never successes; 10 *cumulative* ≠ 10 *consecutive* | Success recording on every dispatch path |
 | Fluid-bar nil-call spam (v1.5.3) | 6 | ISToolTipInv reused with a FluidContainer subject | Subject-type gate |
 | MagicAccessories stack overflow (v1.6.0) | 5 | Mutual capture: their reclaim took our wrapper as fallback after we took theirs as original; their re-entry guard delegates back into the loop | Boot-render cycle breaker |
+| Dress stood down session-wide after one right-click (v1.6.1) | 6 | Vanilla's whole render body is gated on `ISContextMenu.instance.visibleCheck`; a menu-up frame draws nothing, so `ourWrapperFired == false` was misread as a foreign owner and latched `_deferrerSeen` | No-op-frame gate: infer ownership only from frames vanilla actually rendered |
+| Rows overlapping the `Contains:`/`Spices:` icon strips (v1.6.1) | 6 | Vanilla advances its own `y` for two imperative strips before handing back the layout; the total lives in the Lua-unreadable `layoutOverride.offsetY` while our `startY` assumed the name line alone | Pre-layout strip reservation mirroring vanilla's arithmetic (field-probed, skipped when a provider claims the vanilla rows) |
 | ArmorMakesSense Burden rows invisible under Starlit (2026-08) | 2+5 hybrid | AMS re-takes the render slot per UI tick (reclaimer) and injects its rows via a per-render `DoTooltip` metatable swap — the same technique we use. Whoever swaps LAST wins the dispatch, and under Starlit nobody dispatches `DoTooltip` at all (Starlit builds via `DoTooltipEmbedded` + its event) — AMS's rows can't reach the surviving card in any load order. AMS only integrates with EuryTooltipController. | KNOWN_MODS note in diagnostics; author ask = register a TooltipLib provider (its Eury provider infra makes this ~15 lines) and skip the render patch when a framework owns the card |
 
 Regression locks: `tests/` (run with `pz-test-kit/pztest` from the repo root) —

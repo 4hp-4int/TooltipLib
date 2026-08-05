@@ -1,0 +1,20 @@
+[h1]TooltipLib v1.6.1 — chrome that stays, rows that don't collide[/h1]
+[i]Released: 2026-08-05[/i]
+
+[b]The tooltip card keeps its look for the whole session instead of reverting after your first right-click, tooltip rows no longer land on top of a food's ingredient icons, and multiplayer servers stop drowning in world-object lookups as you walk.[/b]
+
+[h1]Fixed[/h1]
+[list]
+[*][b]The decorated tooltip card reverted to plain after right-clicking an item, and stayed plain until you restarted the game.[/b] Reported as "I only see the full card when I start the game — after looking at certain items the full card look disappears". The cause was a right-click, not an item: while a context menu is open the game skips drawing item tooltips entirely, and TooltipLib misread those blank frames as another tooltip mod having taken over the card. It then politely stood its own styling down for the rest of the session — with no other tooltip mod even installed. Blank frames are now recognised as blank, so the styling survives right-clicking, and TooltipLib still steps aside for real tooltip frameworks exactly as before.
+
+[*][b]Tooltip rows drew on top of the "Contains:" and "Spices:" ingredient icons.[/b] On soups, stews and other evolved-recipe food, the first line of the tooltip — usually [i]Encumbrance[/i] — overlapped the row of ingredient icons the game draws under the item name. This happened with default settings and no other mods; only food carrying those components was affected, which is why it hid for so long. TooltipLib now measures and reserves the space those icon strips take, including spiced items that show both strips.
+
+[*][b]Multiplayer: far less server chatter while you move around.[/b] TooltipLib asks the server about world objects your cursor is over so that fridges, generators and the like can show live data. It was asking about every object the cursor merely swept across as you walked — measured on a live server, 41,714 requests in about an hour and a half with four players, and roughly two-thirds of them for objects nobody ever actually looked at. An object now has to stay under the cursor briefly (a fifth of a second) before TooltipLib asks about it, and anything it already knows about is shown instantly with no request at all. Resting tooltips show exactly the same information as before; server owners should see world-object traffic drop dramatically. Single-player is unaffected.
+[/list]
+
+[h1]Notes[/h1]
+[list]
+[*]Save-safe; SP and MP safe. No settings changed, and nothing to reconfigure.
+[*][b]Addon authors:[/b] no API or provider changes — mods built against 1.5.x and 1.6.0 work unchanged.
+[*]Fully quit to desktop and relaunch after updating — the game only loads mod code at startup.
+[/list]

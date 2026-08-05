@@ -4,6 +4,13 @@ Player-facing changelog in plain language. BBCode-formatted so it can be pasted
 straight into the Steam Workshop "Change Notes" box on update. For the technical
 changelog (root causes, file references), see CHANGELOG.md in the source repo.
 
+[b]v1.6.1[/b]
+[list]
+[*] Fixed: the decorated tooltip card reverted to plain after you right-clicked an item, and stayed plain until you restarted the game ("I only see the full card when I start the game"). While a context menu is open the game skips drawing item tooltips entirely, and TooltipLib misread those blank frames as another tooltip mod having taken over the card, then stood its own styling down for the rest of the session — with no other tooltip mod installed. Blank frames are now recognised as blank; the styling survives right-clicking, and TooltipLib still steps aside for real tooltip frameworks.
+[*] Fixed: tooltip rows drew on top of the "Contains:" and "Spices:" ingredient icons on soups, stews and other evolved-recipe food — the first line, usually Encumbrance, overlapped the icon row under the item name. TooltipLib now reserves the space those strips take, including spiced items that show both.
+[*] Fixed (multiplayer): far less server chatter while you move around. TooltipLib asks the server about world objects under your cursor so fridges, generators and the like can show live data — but it was asking about every object the cursor merely swept across as you walked (measured on a live server: 41,714 requests in ~90 minutes with four players, two-thirds of them for objects nobody looked at). An object now has to stay under the cursor for a fifth of a second first, and anything already known is shown instantly with no request. Resting tooltips show the same information as before; single-player is unaffected.
+[/list]
+
 [b]v1.6.0[/b]
 [list]
 [*] Fixed: game crash (stack overflow) the moment you hover an item, when certain other tooltip-modifying mods are installed — reported with Magic Accessories (and it's the same crash that mod has with Global Storage SiK). Some mods keep re-taking control of the item tooltip; depending on your load order, TooltipLib and that mod could end up handing the tooltip back and forth to each other forever. TooltipLib now notices the loop and breaks it — and the tooltip still draws complete, vanilla info plus every mod's added lines. Any load order works now.
