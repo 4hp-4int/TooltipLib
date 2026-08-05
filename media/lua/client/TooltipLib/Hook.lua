@@ -246,6 +246,31 @@ local function InstallHook()
     -- @param surfaceName       "item" or "itemSlot"
     -- @param extraFields       table|nil — extra fields for each context
     -- @param fallbackDoTooltip function — original DoTooltip for error fallback
+    --- Height consumed by the IMPERATIVE icon strips vanilla's
+    --- DoTooltipEmbedded draws BEFORE it hands back the layout: "Contains:"
+    --- (extraItems, InventoryItem.java:760) and "Spices:" (Food.spices,
+    --- java:782). Each advances vanilla's own `y` by lineSpacing + 5, and
+    --- vanilla publishes the total in `layoutOverride.offsetY` — a Java
+    --- instance field Kahlua cannot read, so mirror the arithmetic instead.
+    --- Existence-guarded: a nil method call escapes pcall in Kahlua, so the
+    --- method is probed as a field before being called.
+    local function preLayoutStripHeight(item, lineSpacing)
+        local strips = 0
+        local okE, hasExtra = pcall(function()
+            if item.getExtraItems == nil then return false end
+            local e = item:getExtraItems()
+            return e ~= nil and e:size() > 0
+        end)
+        if okE and hasExtra then strips = strips + 1 end
+        -- vanilla tests only `spices != null` here — no isEmpty check
+        local okS, hasSpices = pcall(function()
+            if item.getSpices == nil then return false end
+            return item:getSpices() ~= nil
+        end)
+        if okS and hasSpices then strips = strips + 1 end
+        return strips * (lineSpacing + 5)
+    end
+
     -- @param dressSpec         table|nil — active panel dress; its presence
     --                          (with an ornaments hook) switches beginSection
     --                          to dressed mode and enables the geometry walk
@@ -367,6 +392,12 @@ local function InstallHook()
                 startY = deferStartY
             else
                 startY = padTop + lineSpacing
+                -- Reserve the rows vanilla already drew imperatively inside
+                -- DoTooltipEmbedded. Skipped when a provider CLAIMS the
+                -- vanilla rows: the embed never runs, so no strip exists.
+                if not replacing then
+                    startY = startY + preLayoutStripHeight(tooltipItem, lineSpacing)
+                end
             end
 
             -- In defer mode, capture the foreign framework's width before
@@ -1309,7 +1340,25 @@ local function InstallHook()
         -- draw the background extension using cached dimensions from the
         -- previous frame, then render our content on top. One-frame lag
         -- on first hover per item (imperceptible at 60fps).
-        if not ourWrapperFired and renderOk and self.tooltip then
+        -- ...but NOT when vanilla itself chose not to render. Both layout
+        -- surfaces wrap their ENTIRE render body in a context-menu guard
+        -- (ISToolTipInv.lua:45, ISToolTipItemSlot.lua:45):
+        --   if not ISContextMenu.instance or not ISContextMenu.instance.visibleCheck
+        -- and ISContextMenu:render() sets visibleCheck every frame it draws. So
+        -- while a context menu is open, item:DoTooltip is never called and our
+        -- wrapper never fires — indistinguishable, from here, from a foreign
+        -- framework having replaced it. Treating those frames as a deferrer
+        -- latched _deferrerSeen on the first right-click of the session and
+        -- stood the panel dress down session-wide (field report: "I only see
+        -- the full card when I start the game"). Nothing was drawn, so there
+        -- is nothing to append to and nothing to conclude: skip the branch.
+        local menuUp = false
+        pcall(function()
+            menuUp = (ISContextMenu and ISContextMenu.instance
+                and ISContextMenu.instance.visibleCheck) and true or false
+        end)
+
+        if not ourWrapperFired and renderOk and self.tooltip and not menuUp then
             -- A foreign framework owns this tooltip's panel: never dress it,
             -- and stop suppressing the vanilla box it builds on (next frame).
             -- Session flag: consistency mode (Core._resolvePanelDress) keys

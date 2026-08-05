@@ -135,6 +135,7 @@ local function makeTT()
         function L.setMinValueWidth(layout, w) layout._minValueWidth = w end
         function L.render(layout, x, y, tooltip)
             seq[#seq + 1] = "layout"
+            layout._renderY = y   -- where the framework placed the row block
             for i = 1, #layout._items do
                 local it = layout._items[i]
                 it.labelWidth = it.label and (#tostring(it.label) * 8) or 0
@@ -1263,6 +1264,115 @@ tests["non_item_subject_falls_back_to_vanilla"] = function()
     local ok = Assert.equal(p.item._doCalls, 2, "vanilla render ran untouched (both passes)")
     ok = Assert.equal(#d.calls, 0, "no dress on a non-item subject") and ok
     ok = Assert.equal(boxRec.bgA, 0.5, "vanilla box untouched") and ok
+    reset()
+    return ok
+end
+
+tests["prelayout_strips_reserved_contains_and_spices"] = function()
+    -- FIELD REPORT: on evolved-recipe food, "Encumbrance" shares a line with
+    -- "Contains" (default settings, all other mods off).
+    --
+    -- InventoryItem.DoTooltipEmbedded draws the name, then TWO imperative
+    -- icon strips BEFORE handing back the layout — "Contains:" (extraItems,
+    -- java:760) and "Spices:" (Food.spices, java:782) — each advancing its own
+    -- y by lineSpacing + 5, and publishes the total in layoutOverride.offsetY.
+    -- That field is not Lua-readable (see the Layout model in makeTT), and the
+    -- framework hardcoded startY = padTop + lineSpacing: with a Contains strip
+    -- present the first vanilla row (Encumbrance) landed ON the strip. Only
+    -- items carrying these components are affected, which is why it took a
+    -- soup to surface it.
+    reset()
+    TooltipLib.registerProvider({
+        id = "StripProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:addLabel("row", { 1, 1, 1, 1 }) end,
+        description = "pre-layout strip probe",
+    })
+
+    local function renderAndGetY(item)
+        local p = makePanel(item)
+        hookedRender(p)
+        return p.tooltip._layouts[#p.tooltip._layouts]._renderY
+    end
+
+    -- baseline: no strips — the name line only (padTop 5 + lineSpacing 14)
+    local plain = makeItem()
+    local plainY = renderAndGetY(plain)
+    local ok = Assert.equal(plainY, 19, "plain item: rows start below the name line")
+
+    -- a soup: extraItems present -> one strip reserved (lineSpacing + 5 = 19)
+    local soup = makeItem()
+    soup.getExtraItems = function() return { size = function() return 3 end } end
+    ok = Assert.equal(renderAndGetY(soup), 19 + 19,
+        "Contains strip reserved: rows clear the ingredient icons") and ok
+
+    -- spiced soup: both strips
+    local spiced = makeItem()
+    spiced.getExtraItems = function() return { size = function() return 2 end } end
+    spiced.getSpices = function() return { size = function() return 1 end } end
+    ok = Assert.equal(renderAndGetY(spiced), 19 + 19 + 19,
+        "Contains + Spices strips both reserved") and ok
+
+    -- vanilla tests spices ~= nil with NO isEmpty check — an empty list still
+    -- draws the label, so it must still be reserved
+    local emptySpice = makeItem()
+    emptySpice.getSpices = function() return { size = function() return 0 end } end
+    ok = Assert.equal(renderAndGetY(emptySpice), 19 + 19,
+        "empty-but-present spices list still draws its label") and ok
+
+    -- an item whose class has neither method must not shift (nil method calls
+    -- escape pcall in Kahlua — the guard is a field probe, not a pcall)
+    local bare = makeItem()
+    ok = Assert.equal(renderAndGetY(bare), 19, "items without the components are untouched") and ok
+
+    TooltipLib.removeProvider("StripProbe")
+    reset()
+    return ok
+end
+
+tests["context_menu_noop_frame_is_not_a_deferrer"] = function()
+    -- FIELD REPORT: "I only see the full card when I start the game. After
+    -- looking at certain items the full card look disappears" — for the rest
+    -- of the session, no other tooltip mod installed.
+    --
+    -- Vanilla ISToolTipInv:render() wraps its ENTIRE body in
+    --   if not ISContextMenu.instance or not ISContextMenu.instance.visibleCheck
+    -- (ISToolTipInv.lua:45, and ISToolTipItemSlot.lua:45 for the slot surface).
+    -- ISContextMenu:render() sets visibleCheck = true every frame it draws. So
+    -- while a context menu is open, vanilla's render is a NO-OP: item:DoTooltip
+    -- is never called. That looks identical to "a foreign framework replaced
+    -- our DoTooltip wrapper" — and latches TooltipLib._deferrerSeen, which
+    -- consistency mode reads to stand the dress down SESSION-WIDE.
+    -- Right-clicking one item must not cost the player the skin until restart.
+    reset()
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local savedGate = TooltipLib._mixedDressAllowed
+    TooltipLib._mixedDressAllowed = function() return false end   -- default
+    local savedMenu = ISContextMenu
+
+    local p = makePanel(makeItem())
+    hookedRender(p); hookedRender(p)
+    local before = #d.calls
+    local ok = Assert.greater(before, 0, "dress is on before the context menu opens")
+
+    -- right-click: menu visible, vanilla render draws nothing at all
+    ISContextMenu = { instance = { visibleCheck = true } }
+    p._impl = function(self) end
+    hookedRender(p)
+    ok = Assert.isNil(TooltipLib._deferrerSeen,
+        "a context-menu no-op frame is not a foreign deferrer") and ok
+
+    -- menu closed: normal frames resume, the card is still dressed
+    ISContextMenu = { instance = { visibleCheck = false } }
+    p._impl = nil
+    hookedRender(p)
+    ok = Assert.greater(#d.calls, before,
+        "the dressed card survives a context menu (no session-wide stand-down)") and ok
+
+    TooltipLib._mixedDressAllowed = savedGate
+    ISContextMenu = savedMenu
     reset()
     return ok
 end
