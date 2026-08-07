@@ -976,6 +976,12 @@ local function InstallHook()
     local accentColor = nil
 
     local function renderBody(self)
+        -- Aiming gate: while the local player holds aim, draw nothing at all
+        -- (vanilla card included) — return without calling the render chain.
+        -- Draws nothing and mutates no hook state, so ownership/deferred
+        -- memos resume untouched when the aim ends (Mod Options, default ON).
+        if TooltipLib._aimingSuppressed() then return end
+
         local item = self.item
 
         frameCounter = frameCounter + 1

@@ -373,6 +373,13 @@ local function InstallWorldObjectHook()
     local resetTable = TooltipLib._resetTable
 
     Events.OnPreUIDraw.Add(function()
+        -- Aiming gate: same policy as the item/itemSlot hooks — no tooltip
+        -- drawing while the local player holds aim (Mod Options, default ON).
+        if TooltipLib._aimingSuppressed() then
+            tooltipPanel:setVisible(false)
+            return
+        end
+
         local pickOk, picked = pcall(UIManager.getLastPicked)
         if not pickOk or not picked then
             tooltipPanel:setVisible(false)

@@ -1061,6 +1061,22 @@ function TooltipLib._readDetailKey()
     return ok and result == true
 end
 
+--- True when tooltip drawing should be suppressed because the local player is
+--- aiming a weapon. Read per frame by the item/itemSlot render hooks and the
+--- world-object panel. Option-gated via Options.lua's _hideWhileAimingEnabled
+--- (absent = enabled, matching the option's ON default). Field-probes isAiming
+--- rather than pcalling it: a nil method call escapes Kahlua's pcall.
+---@return boolean
+function TooltipLib._aimingSuppressed()
+    if TooltipLib._hideWhileAimingEnabled
+        and not TooltipLib._hideWhileAimingEnabled() then
+        return false
+    end
+    local player = getPlayer and getPlayer() or nil
+    if not player or not player.isAiming then return false end
+    return player:isAiming() == true
+end
+
 --- Evaluate which providers are active for a given context.
 --- Checks _isDisabled, calls enabled() with the provided args, and filters
 --- by detailOnly. Returns nil if no providers are active.

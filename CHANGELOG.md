@@ -4,6 +4,9 @@ All notable changes to TooltipLib are documented here.
 
 ## [1.6.1] — 2026-08-05
 
+### Added
+- **"Hide tooltips while aiming" (Mod Options, default ON).** While the local player holds aim, no TooltipLib-managed tooltip draws at all: the item and crafting-slot surfaces return before the render chain runs (so the vanilla card is skipped too, not just provider content), and the world-object panel hides. Brushing the inventory mid-fight is almost always accidental, and tooltip layout is the most expensive per-frame UI work — suppressing it keeps the frame cheap exactly when it matters most. Suppressed frames mutate no hook state, so ownership and deferred-mode memos resume untouched the moment the aim ends. `isAiming` is field-probed, not pcalled (a nil method call escapes Kahlua's `pcall`). Regression-locked in `tests/test_tooltiplib_dress.lua` (`aiming_gate_suppresses_all_drawing`).
+
 ### Fixed
 - **Panel-dress chrome vanished for the rest of the session after the first right-click.** Field report: *"I only see the full card when I start the game. After looking at certain items the full card look disappears"* — default settings, no other tooltip framework installed. Both layout surfaces' vanilla renders wrap their **entire body** in a context-menu guard (`ISToolTipInv.lua:45` and `ISToolTipItemSlot.lua:45`: `if not ISContextMenu.instance or not ISContextMenu.instance.visibleCheck`), and `ISContextMenu:render()` sets `visibleCheck` every frame it draws. So while a context menu is open, vanilla's render is a complete **no-op**: `item:DoTooltip` is never called, and the `ourWrapperFired` ownership proof reads false — indistinguishable, from inside the hook, from a foreign framework having replaced our wrapper. The deferred-append branch therefore ran on frames where *nothing had been drawn at all*, latching `TooltipLib._deferrerSeen` on the first right-click of the session; consistency mode (`Core._resolvePanelDress`) reads that latch to stand the dress down **session-wide**, so one right-click cost the player the skin until restart. The deferred branch now skips any frame with a context menu up: nothing was drawn, so there is nothing to append to and nothing to conclude. Regression-locked in `tests/test_tooltiplib_dress.lua` (`context_menu_noop_frame_is_not_a_deferrer`).
 
@@ -18,7 +21,7 @@ All notable changes to TooltipLib are documented here.
 ### Technical
 - No API, provider-contract or persisted-data change. `TooltipLib.VERSION_NUM` 14 → 15 (load-guard stamp only); consumers pinning `>= 1.5.x` need no update.
 - TooltipLib's regression suite moved out of `pz-test-kit/uiview/tests/` and into `tests/` here; those files only lived in uiview because that is where `UIView/UIMock` resolved. `pz-test.lua` now declares uiview as a test-only dependency, and uiview keeps the tests that are genuinely its own (scene rendering + golden display lists).
-- **68 tests green** in `tests/` (real Kahlua VM), alongside 723 in the kit's `uiview` harness and 80 in SauceTooltips driven against this build.
+- **69 tests green** in `tests/` (real Kahlua VM), alongside 723 in the kit's `uiview` harness and 80 in SauceTooltips driven against this build.
 
 ## [1.6.0] — 2026-08-01
 

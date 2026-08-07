@@ -1377,6 +1377,42 @@ tests["context_menu_noop_frame_is_not_a_deferrer"] = function()
     return ok
 end
 
+tests["aiming_gate_suppresses_all_drawing"] = function()
+    -- "Hide tooltips while aiming" (Mod Options, default ON): while the local
+    -- player holds aim, renderBody returns before the render chain — nothing
+    -- draws, vanilla included, no hook state mutates — and rendering resumes
+    -- untouched the frame the aim ends. Untick = tooltips draw as always.
+    reset()
+    local savedGetPlayer = getPlayer
+    local aiming = true
+    getPlayer = function()
+        return { isAiming = function() return aiming end }
+    end
+
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local ok = Assert.equal(p.item._doCalls or 0, 0,
+        "no DoTooltip pass while aiming — the render chain never ran")
+
+    aiming = false
+    hookedRender(p)
+    ok = Assert.equal(p.item._doCalls, 2,
+        "render resumes normally the frame after the aim ends") and ok
+
+    -- option OFF: tooltips draw even while aiming
+    aiming = true
+    TooltipLib._hideWhileAimingEnabled = function() return false end
+    local p2 = makePanel(makeItem())
+    hookedRender(p2)
+    ok = Assert.equal(p2.item._doCalls, 2,
+        "unticking the option keeps tooltips visible while aiming") and ok
+
+    TooltipLib._hideWhileAimingEnabled = nil
+    getPlayer = savedGetPlayer
+    reset()
+    return ok
+end
+
 tests["non_item_subject_safe_under_starlit_gate"] = function()
     -- the exact crash line: with StarlitLibrary present, the wrapper's gate
     -- read item:getID() before any subject-type check

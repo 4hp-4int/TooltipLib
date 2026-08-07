@@ -1,7 +1,12 @@
 [h1]TooltipLib v1.6.1 — chrome that stays, rows that don't collide[/h1]
 [i]Released: 2026-08-05[/i]
 
-[b]The tooltip card keeps its look for the whole session instead of reverting after your first right-click, tooltip rows no longer land on top of a food's ingredient icons, and multiplayer servers stop drowning in world-object lookups as you walk.[/b]
+[b]The tooltip card keeps its look for the whole session instead of reverting after your first right-click, tooltip rows no longer land on top of a food's ingredient icons, multiplayer servers stop drowning in world-object lookups as you walk — and tooltips now stay out of your way entirely while you're aiming.[/b]
+
+[h1]Added[/h1]
+[list]
+[*][b]Tooltips hide while you're aiming.[/b] Brushing the inventory or the world with your cursor mid-fight was drawing (and computing) a tooltip you weren't reading, right when frames matter most. While your character holds aim, item and world-object tooltips are simply not drawn — the moment you let go of aim, they're back. If you'd rather keep them, untick "Hide tooltips while aiming" in Mod Options > TooltipLib.
+[/list]
 
 [h1]Fixed[/h1]
 [list]
@@ -14,7 +19,7 @@
 
 [h1]Notes[/h1]
 [list]
-[*]Save-safe; SP and MP safe. No settings changed, and nothing to reconfigure.
+[*]Save-safe; SP and MP safe. One new setting ("Hide tooltips while aiming", ON by default) — everything else is unchanged and nothing needs reconfiguring.
 [*][b]Addon authors:[/b] no API or provider changes — mods built against 1.5.x and 1.6.0 work unchanged.
 [*]Fully quit to desktop and relaunch after updating — the game only loads mod code at startup.
 [/list]

@@ -19,6 +19,10 @@ if not PZAPI or not PZAPI.ModOptions then
     function TooltipLib._getDetailKeyCode()
         return Keyboard.KEY_LSHIFT
     end
+    --- Fallback: hide-while-aiming keeps its ON default without ModOptions.
+    function TooltipLib._hideWhileAimingEnabled()
+        return true
+    end
     return
 end
 
@@ -37,6 +41,12 @@ modOptions:addKeyBind("detailKey", getText("UI_TL_DetailKey"), Keyboard.KEY_LSHI
 -- so every tooltip matches; ON = mixed look (owned tooltips dressed,
 -- foreign ones vanilla). Information is identical either way.
 modOptions:addTickBox("mixedDress", "UI_TL_MixedDress", false, "UI_TL_MixedDressDesc")
+
+-- Hide tooltips while the player is aiming a weapon: ON (default) = no
+-- tooltip draws (vanilla card included) while aim is held — hover mid-fight
+-- is almost always accidental and tooltip layout is the most expensive
+-- per-frame UI work; OFF = tooltips draw as always.
+modOptions:addTickBox("hideWhileAiming", "UI_TL_HideWhileAiming", true, "UI_TL_HideWhileAimingDesc")
 
 -- One-click compatibility check: runs TooltipLib.diagnose(), shows the
 -- verdict in a small modal, prints the full report to the console/debug log.
@@ -60,6 +70,17 @@ modOptions:addButton("diagnose", getText("UI_TL_Diagnose"), "UI_TL_DiagnoseDesc"
         TooltipLib._log("diagnose button error: " .. tostring(err))
     end
 end)
+
+--- Live gate read by _aimingSuppressed (Core). Missing/unreadable option
+--- resolves to true, matching the tick box's ON default.
+---@return boolean
+function TooltipLib._hideWhileAimingEnabled()
+    local ok, v = pcall(function()
+        return PZAPI.ModOptions:getOptions("TooltipLib"):getOption("hideWhileAiming"):getValue()
+    end)
+    if not ok or v == nil then return true end
+    return v and true or false
+end
 
 --- Live gate read by _resolvePanelDress (Core).
 ---@return boolean
