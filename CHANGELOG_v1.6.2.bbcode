@@ -1,0 +1,21 @@
+[h1]TooltipLib v1.6.2[/h1]
+
+[b]Compatibility with today's Project Zomboid security patch. Update this one.[/b]
+
+[h1]Fixed[/h1]
+[list]
+[*][b]The game removed two Lua functions and TooltipLib used one of them.[/b] Today's patch removed [i]loadstring[/i] and [i]loadstream[/i] for security reasons. TooltipLib called [i]loadstring[/i] once, at load, to work around an old vanilla bug where one of the game's own text lookups always fails — the trick let that failure be reported without the game blaming TooltipLib for it. The call was already wrapped so it couldn't crash anything, but on the new build it would have written an error into your debug log every single time the game started. It's gone, and the second safeguard that covered the same problem is doing the job on its own.
+[/list]
+
+[h1]Do I need this?[/h1]
+[list]
+[*][b]If you've updated Project Zomboid, yes.[/b] Nothing breaks without it, but your log fills with a harmless stack trace on every launch — and a log full of harmless errors is how real ones get missed.
+[*][b]If you're still on the previous build, it's safe either way.[/b] Nothing else changed.
+[*][b]Mods that depend on TooltipLib need no update.[/b] No API changed; this is a patch release.
+[/list]
+
+[h1]Compatibility[/h1]
+[list]
+[*][b]Save-safe.[/b] Nothing stored in the save changes. Upgrade or roll back freely.
+[*][b]Provider mods:[/b] the public API is untouched. Version reads 1.6.2.
+[/list]

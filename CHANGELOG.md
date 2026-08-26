@@ -2,6 +2,11 @@
 
 All notable changes to TooltipLib are documented here.
 
+## [1.6.2] — 2026-08-26
+
+### Fixed
+- **Compatibility with the PZ security patch that removed `loadstring`/`loadstream`.** `Hook.lua` opened with a `loadstring` closure that pre-seeded the Translator's "missing" set for the B42.16 `getText("Item Report")` bug (the key has no prefix, so the lookup always fails). The closure had to be **unattributed** — that was the entire point, so the resulting Translation ERROR wasn't credited to TooltipLib and didn't flag it in `PauseBuggedModList` — and `loadstring` was the only way to build one. With `loadstring` gone the call raises, and although the block was already `pcall`-wrapped, Kahlua logs at the raise site regardless, so every load would have written a stack trace. Removed outright rather than guarded on `loadstring ~= nil`: the pre-seed was only ever the first line of defence, and `snapshotAndClearBuggedFlags` immediately below handles the same failure mode directly by clearing pre-game-start flags whatever raised them. There is no replacement for an unattributed closure — a direct `getText()` call would carry our attribution, which is precisely what the trick existed to avoid.
+
 ## [1.6.1] — 2026-08-05
 
 ### Added

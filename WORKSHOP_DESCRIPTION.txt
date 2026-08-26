@@ -12,7 +12,7 @@ TooltipLib fixes this. One managed hook per surface. Mods register as providers 
 
 Install it. If a mod lists TooltipLib as a dependency, install TooltipLib. No configuration. No load order fiddling. No compatibility patches.
 
-Optional: install [url=https://steamcommunity.com/workshop/filedetails/?id=3408338824]Umbrella[/url] for the Mod Options panel. Toggle individual providers on or off, rebind the detail key (default: Left Shift). Works fine without Umbrella — the defaults are considered.
+Toggle individual providers on or off, rebind the detail key (default: Shift).
 
 Safe to add mid-save. Safe to remove mid-save. No persistent state. Writes nothing to your save file.
 
@@ -62,9 +62,7 @@ The framework handles the hook, the layout, the error handling, and the caching.
 addPercentage  addSpacer  addHeader  addDivider  addText[/code]
 Layout surfaces (item, itemSlot, object) add texture rendering. Rich text surfaces (skill, vehicle) add line-level formatting.
 
-[b]5-phase lifecycle.[/b] preTooltip → callback → textures → postRender → cleanup. In order. Every time.
-
-[b]Full documentation:[/b] GUIDE_URL_HERE
+[b]5-phase lifecycle.[/b] preTooltip → callback → textures → postRender → cleanup. In order.
 
 [hr][/hr]
 
@@ -98,14 +96,6 @@ Works alongside mods that hook ISToolTipInv.render directly — deferred mode de
 [*] No persistent state, no save writes
 [/list]
 
-[b]Other tooltip frameworks[/b]
-
-[b]StarlitLibrary:[/b] fully integrated. When Starlit owns the item card, TooltipLib feeds its providers' content directly into Starlit's tooltip — everything lines up in one card, no setup needed.
-
-Other tooltip frameworks that take over the card are handled too: their content renders untouched, and provider content is added alongside it, nothing lost. Any tooltip skin steps aside so cards stay consistent; an option enables the mixed look instead.
-
-[hr][/hr]
-
 [b]Bug reports:[/b]
 [code]
 TooltipLib Version:
@@ -116,3 +106,9 @@ Other tooltip mods installed:
 [/code]
 
 [img]https://pz-mod-images.us-southeast-1.linodeobjects.com/mod-tiles.png[/img]
+
+Workshop ID: 3694097672
+Mod ID: TooltipLib
+
+Workshop ID: 3694097672
+Mod ID: TooltipLib

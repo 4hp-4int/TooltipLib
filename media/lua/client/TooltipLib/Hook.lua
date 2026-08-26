@@ -48,12 +48,21 @@ pcall(function() require "Entity/ISUI/Components/Crafting/ISToolTipItemSlot" end
 local BOOT_INV_RENDER = ISToolTipInv and ISToolTipInv.render
 local BOOT_SLOT_RENDER = ISToolTipItemSlot and ISToolTipItemSlot.render
 
--- B42.16 vanilla bug: getText("Item Report") has no prefix so it always fails.
--- Pre-seed the Translator's "missing" set via unattributed loadstring closure.
-pcall(function()
-    local fn = loadstring('getText("Item Report")')
-    if fn then fn() end
-end)
+-- REMOVED (PZ security patch, 2026-08): a loadstring closure used to pre-seed
+-- the Translator's "missing" set for the B42.16 `getText("Item Report")` bug,
+-- which has no prefix and so always fails. The closure had to be UNATTRIBUTED —
+-- that was the whole point, so the resulting Translation ERROR wasn't blamed on
+-- TooltipLib and didn't flag it in PauseBuggedModList — and loadstring was the
+-- only way to make one. PZ removed loadstring/loadstream for security; there is
+-- no replacement, and a direct getText() call would carry our attribution, i.e.
+-- cause exactly the thing this was avoiding.
+--
+-- Dropping it rather than guarding it on `loadstring ~= nil`: the pre-seed was
+-- only ever a first line of defence. snapshotAndClearBuggedFlags below is the
+-- second and handles the same failure mode directly, by clearing pre-game-start
+-- flags whatever raised them. Keeping a dead branch for old builds would leave a
+-- misleading comment about a mechanism that no longer exists on any supported
+-- version.
 
 -- B42.16 regression: LuaClosure$DebugInfo.generateModName() unconditionally
 -- flags mods in PauseBuggedModList whenever their closures appear in any
